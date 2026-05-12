@@ -1,46 +1,59 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import { useAuth } from '../../contexts/AuthContext';
+import {
+  DashboardLayout,
+  DashboardConfig,
+  ChartIcon,
+  UsersIcon,
+  SettingsIcon,
+  PersonIcon,
+  LocationIcon,
+  CardIcon,
+  ChatIcon,
+  CalendarIcon,
+  HomeIcon,
+  ThreeDotsIcon,
+} from '../../components/DashboardLayout';
+import { MedicosLista }     from '../listas/MedicosLista';
+import { FuncionarioLista } from '../listas/FuncionarioLista';
+import { AgendasLista }     from '../listas/AgendasLista';
+
+const config: DashboardConfig = {
+  actions: [
+    { label: 'Relatórios',    sub: 'gerenciais',   icon: c => <ChartIcon color={c} /> },
+    { label: 'Usuários',      sub: 'do sistema',   icon: c => <UsersIcon color={c} /> },
+    { label: 'Configurações', sub: 'do sistema',   icon: c => <SettingsIcon color={c} /> },
+    { label: 'Meu',           sub: 'perfil',       icon: c => <PersonIcon color={c} /> },
+  ],
+  card: {
+    topLabel:   'REUNIÃO DO DIA',
+    mainText:   '11 de maio, 2026',
+    subText:    'Segunda-feira, às 09:00',
+    personName: 'Equipe Clínica',
+    personSub:  'Reunião semanal',
+    statusText: 'Agendada',
+    statusColor: '#1565C0',
+  },
+  access: [
+    { label: 'Clínicas',   sub: 'Gerenciar\nunidades',     icon: c => <LocationIcon color={c} /> },
+    { label: 'Equipe',     sub: 'Ver\nfuncionários',       icon: c => <UsersIcon color={c} /> },
+    { label: 'Financeiro', sub: 'Relatórios\nfinanceiros', icon: c => <CardIcon color={c} /> },
+    { label: 'Suporte',    sub: 'Configurações\ne ajuda',  icon: c => <ChatIcon color={c} /> },
+  ],
+  tabs: [
+    { key: 'inicio',       label: 'Início',       icon: a => <HomeIcon color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'medicos',      label: 'Médicos',      icon: a => <UsersIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'funcionarios', label: 'Funcionários', icon: a => <PersonIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'agendas',      label: 'Agendas',      icon: a => <CalendarIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'mais',         label: 'Mais',         icon: _ => <ThreeDotsIcon /> },
+  ],
+};
+
+const screens = {
+  medicos:      MedicosLista,
+  funcionarios: FuncionarioLista,
+  agendas:      AgendasLista,
+};
 
 export function AdminDashboard() {
-  const { user, logout } = useAuth();
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.role}>Administrador</Text>
-        <Text style={styles.name}>Olá, {user?.nome}</Text>
-      </View>
-
-      <View style={styles.content}>
-        <Text style={styles.placeholder}>Painel do Administrador</Text>
-      </View>
-
-      <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-        <Text style={styles.logoutText}>Sair</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
-  );
+  return <DashboardLayout config={config} screens={screens} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#eff6ff' },
-  header: {
-    backgroundColor: '#2563eb',
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  role: { fontSize: 13, color: '#bfdbfe', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
-  name: { fontSize: 22, color: '#fff', fontWeight: 'bold', marginTop: 4 },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  placeholder: { fontSize: 18, color: '#93c5fd' },
-  logoutButton: {
-    margin: 24,
-    backgroundColor: '#ef4444',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  logoutText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-});

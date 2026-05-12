@@ -1,46 +1,49 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import { useAuth } from '../../contexts/AuthContext';
+import {
+  DashboardLayout,
+  DashboardConfig,
+  CalendarIcon,
+  DocIcon,
+  PersonIcon,
+  PillIcon,
+  UsersIcon,
+  PlusIcon,
+  ChatIcon,
+  HomeIcon,
+  ThreeDotsIcon,
+} from '../../components/DashboardLayout';
+
+const config: DashboardConfig = {
+  actions: [
+    { label: 'Minha',     sub: 'agenda',       icon: c => <CalendarIcon color={c} /> },
+    { label: 'Meus',      sub: 'pacientes',     icon: c => <UsersIcon color={c} /> },
+    { label: 'Prontuários', sub: 'e laudos',   icon: c => <DocIcon color={c} /> },
+    { label: 'Meu',       sub: 'perfil',        icon: c => <PersonIcon color={c} /> },
+  ],
+  card: {
+    topLabel:   'PRÓXIMO PACIENTE',
+    mainText:   '20 de maio, 2024',
+    subText:    'Segunda-feira, às 14:30',
+    personName: 'Ana Beatriz Silva',
+    personSub:  'Retorno — Psiquiatria',
+    statusText: 'Confirmada',
+    statusColor: '#2E7D32',
+  },
+  access: [
+    { label: 'Prescrições',  sub: 'Receituário\ndigital',       icon: c => <PillIcon color={c} /> },
+    { label: 'Exames',       sub: 'Solicitar\ne visualizar',    icon: c => <PlusIcon color={c} /> },
+    { label: 'Prontuários',  sub: 'Histórico\ndo paciente',     icon: c => <DocIcon color={c} /> },
+    { label: 'Fale conosco', sub: 'Atendimento\ne suporte',     icon: c => <ChatIcon color={c} /> },
+  ],
+  tabs: [
+    { key: 'inicio',    label: 'Início',    icon: a => <HomeIcon color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'agenda',    label: 'Agenda',    icon: a => <CalendarIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'pacientes', label: 'Pacientes', icon: a => <UsersIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} /> },
+    { key: 'mensagens', label: 'Mensagens', icon: a => <ChatIcon size={22} color={a ? '#1565C0' : '#8A9BB0'} />, badge: 2 },
+    { key: 'mais',      label: 'Mais',      icon: _ => <ThreeDotsIcon /> },
+  ],
+};
 
 export function ProfissionalDashboard() {
-  const { user, logout } = useAuth();
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.role}>Profissional</Text>
-        <Text style={styles.name}>Olá, {user?.nome}</Text>
-      </View>
-
-      <View style={styles.content}>
-        <Text style={styles.placeholder}>Painel do Profissional</Text>
-      </View>
-
-      <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-        <Text style={styles.logoutText}>Sair</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
-  );
+  return <DashboardLayout config={config} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0fdf4' },
-  header: {
-    backgroundColor: '#16a34a',
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  role: { fontSize: 13, color: '#bbf7d0', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
-  name: { fontSize: 22, color: '#fff', fontWeight: 'bold', marginTop: 4 },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  placeholder: { fontSize: 18, color: '#86efac' },
-  logoutButton: {
-    margin: 24,
-    backgroundColor: '#ef4444',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  logoutText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-});
