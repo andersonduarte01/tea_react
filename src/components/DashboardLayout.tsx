@@ -9,6 +9,11 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  Calendar, FileText, Plus, User, Heart, MapPin,
+  CreditCard, MessageCircle, Users, BarChart2,
+  Settings, Pill, Home, MoreHorizontal, Bell, LogOut,
+} from 'lucide-react-native';
 import { useAuth } from '../contexts/AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -57,282 +62,78 @@ export interface DashboardConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ICONS
+// ICONS  (lucide-react-native)
 // ─────────────────────────────────────────────────────────────────
 
 export function CalendarIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.calBody, { borderColor: color, width: size * 0.85, height: size * 0.85 }]}>
-        <View style={[ic.calHeader, { backgroundColor: color }]} />
-        <View style={ic.calGrid}>
-          {[0,1,2,3,4,5].map(i => <View key={i} style={[ic.calDot, { backgroundColor: color }]} />)}
-        </View>
-      </View>
-      <View style={[ic.calPeg, { backgroundColor: color, left: '22%' }]} />
-      <View style={[ic.calPeg, { backgroundColor: color, right: '22%' }]} />
-    </View>
-  );
+  return <Calendar size={size} color={color} />;
 }
-
 export function DocIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.docBody, { borderColor: color }]}>
-        <View style={[ic.docFold, { borderColor: color }]} />
-        {[0,1,2].map(i => (
-          <View key={i} style={[ic.docLine, { backgroundColor: color, top: 10 + i * 5 }]} />
-        ))}
-      </View>
-    </View>
-  );
+  return <FileText size={size} color={color} />;
 }
-
 export function PlusIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.plusOuter, { borderColor: color, width: size * 0.78, height: size * 0.78 }]}>
-        <View style={[ic.plusV, { backgroundColor: color }]} />
-        <View style={[ic.plusH, { backgroundColor: color }]} />
-      </View>
-    </View>
-  );
+  return <Plus size={size} color={color} />;
 }
-
 export function PersonIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.personHead, { borderColor: color }]} />
-      <View style={[ic.personBody, { borderColor: color }]} />
-    </View>
-  );
+  return <User size={size} color={color} />;
 }
-
 export function HeartIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  const bump = size * 0.42;
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.heartL, { backgroundColor: color, width: bump, height: bump, borderRadius: bump / 2, top: size * 0.18, left: size * 0.06 }]} />
-      <View style={[ic.heartR, { backgroundColor: color, width: bump, height: bump, borderRadius: bump / 2, top: size * 0.18, right: size * 0.06 }]} />
-      <View style={[ic.heartB, { backgroundColor: color, top: size * 0.3 }]} />
-    </View>
-  );
+  return <Heart size={size} color={color} />;
 }
-
 export function LocationIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.locPin, { borderColor: color }]}>
-        <View style={[ic.locDot, { backgroundColor: color }]} />
-      </View>
-      <View style={[ic.locTail, { backgroundColor: color }]} />
-    </View>
-  );
+  return <MapPin size={size} color={color} />;
 }
-
 export function CardIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.crdCard, { borderColor: color }]}>
-        <View style={[ic.crdStrip, { backgroundColor: color }]} />
-        <View style={[ic.crdChip, { backgroundColor: color }]} />
-      </View>
-    </View>
-  );
+  return <CreditCard size={size} color={color} />;
 }
-
 export function ChatIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.chatBubble, { borderColor: color, width: size * 0.82, height: size * 0.66 }]}>
-        {[0,1,2].map(i => <View key={i} style={[ic.chatDot, { backgroundColor: color }]} />)}
-      </View>
-      <View style={[ic.chatTail, { backgroundColor: color }]} />
-    </View>
-  );
+  return <MessageCircle size={size} color={color} />;
 }
-
 export function UsersIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.usr2Head, { borderColor: color }]} />
-      <View style={[ic.usr2Body, { borderColor: color }]} />
-      <View style={[ic.usr1Head, { borderColor: color }]} />
-      <View style={[ic.usr1Body, { borderColor: color }]} />
-    </View>
-  );
+  return <Users size={size} color={color} />;
 }
-
 export function ChartIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  const bars = [0.4, 0.7, 0.55, 0.9];
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.chartBase, { borderColor: color }]}>
-        {bars.map((h, i) => (
-          <View
-            key={i}
-            style={[ic.chartBar, { backgroundColor: color, height: (size * 0.55) * h }]}
-          />
-        ))}
-      </View>
-    </View>
-  );
+  return <BarChart2 size={size} color={color} />;
 }
-
 export function SettingsIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.gearOuter, { borderColor: color, width: size * 0.72, height: size * 0.72, borderRadius: (size * 0.72) / 2 }]}>
-        <View style={[ic.gearInner, { borderColor: color }]} />
-      </View>
-      {[0,1,2,3].map(i => (
-        <View
-          key={i}
-          style={[
-            ic.gearTooth,
-            { backgroundColor: color, transform: [{ rotate: `${i * 45}deg` }], top: size * 0.06 },
-          ]}
-        />
-      ))}
-    </View>
-  );
+  return <Settings size={size} color={color} />;
 }
-
 export function PillIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
-  return (
-    <View style={[{ width: size, height: size }, ic.center]}>
-      <View style={[ic.pillOuter, { borderColor: color, width: size * 0.78, height: size * 0.4, borderRadius: size * 0.2 }]}>
-        <View style={[ic.pillDivider, { backgroundColor: color }]} />
-        <View style={[ic.pillLeft, { backgroundColor: color }]} />
-      </View>
-    </View>
-  );
+  return <Pill size={size} color={color} />;
 }
-
-export function HomeIcon({ color = '#1565C0' }: { color?: string }) {
-  return (
-    <View style={ic.homeWrap}>
-      <View style={[ic.homeRoof, { borderBottomColor: color }]} />
-      <View style={[ic.homeBody, { borderColor: color }]}>
-        <View style={[ic.homeDoor, { borderColor: color }]} />
-      </View>
-    </View>
-  );
+export function HomeIcon({ size = 26, color = '#1565C0' }: { size?: number; color?: string }) {
+  return <Home size={size} color={color} />;
 }
-
 export function ThreeDotsIcon({ color = '#8A9BB0' }: { color?: string }) {
-  return (
-    <View style={ic.dotsRow}>
-      {[0,1,2].map(i => <View key={i} style={[ic.dotsDot, { backgroundColor: color }]} />)}
-    </View>
-  );
+  return <MoreHorizontal size={22} color={color} />;
+}
+
+function BellIcon() {
+  return <Bell size={22} color="#5E7A8A" />;
 }
 
 function ExitIcon() {
-  return (
-    <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ width: 14, height: 16, borderWidth: 2, borderColor: '#EF4444', borderRadius: 2, borderRightWidth: 0, position: 'absolute', left: 0 }} />
-      <View style={{ position: 'absolute', right: 0, flexDirection: 'row', alignItems: 'center' }}>
-        <View style={{ width: 9, height: 2, backgroundColor: '#EF4444', borderRadius: 1 }} />
-        <View style={{ width: 0, height: 0, borderTopWidth: 4, borderBottomWidth: 4, borderLeftWidth: 5, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#EF4444' }} />
-      </View>
-    </View>
-  );
+  return <LogOut size={18} color="#EF4444" />;
 }
 
 function LogoCircle() {
   return (
-    <View style={ic.logoOuter}>
-      <View style={ic.logoLeft} />
-      <View style={ic.logoCross}>
-        <View style={ic.logoCrossV} />
-        <View style={ic.logoCrossH} />
+    <View style={logo.outer}>
+      <View style={logo.left} />
+      <View style={logo.cross}>
+        <View style={logo.crossV} />
+        <View style={logo.crossH} />
       </View>
     </View>
   );
 }
 
-function BellIcon() {
-  return (
-    <View style={ic.bellWrap}>
-      <View style={ic.bellTop} />
-      <View style={ic.bellBody} />
-      <View style={ic.bellClapper} />
-    </View>
-  );
-}
-
-// shared icon styles
-const ic = StyleSheet.create({
-  center: { alignItems: 'center', justifyContent: 'center' },
-  // calendar
-  calBody: { borderWidth: 1.5, borderRadius: 3, overflow: 'hidden' },
-  calHeader: { height: '30%' },
-  calGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 2, gap: 2 },
-  calDot: { width: 3, height: 3, borderRadius: 1 },
-  calPeg: { position: 'absolute', top: -1, width: 3, height: 5, borderRadius: 1 },
-  // doc
-  docBody: { width: '72%', height: '88%', borderWidth: 1.5, borderRadius: 3, position: 'relative' },
-  docFold: { position: 'absolute', top: -1, right: -1, width: 8, height: 8, borderLeftWidth: 1.5, borderBottomWidth: 1.5, backgroundColor: '#E8F4FD' },
-  docLine: { position: 'absolute', left: 4, right: 8, height: 1.5, borderRadius: 1 },
-  // plus
-  plusOuter: { borderWidth: 1.5, borderRadius: 3, alignItems: 'center', justifyContent: 'center' },
-  plusV: { position: 'absolute', width: 3, height: 14, borderRadius: 1 },
-  plusH: { position: 'absolute', width: 14, height: 3, borderRadius: 1 },
-  // person
-  personHead: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, marginBottom: 2 },
-  personBody: { width: 18, height: 10, borderTopLeftRadius: 9, borderTopRightRadius: 9, borderWidth: 1.5, borderBottomWidth: 0 },
-  // heart
-  heartL: { position: 'absolute' },
-  heartR: { position: 'absolute' },
-  heartB: { position: 'absolute', left: 0, right: 0, height: 14, backgroundColor: 'transparent', transform: [{ rotate: '45deg' }] },
-  // location
-  locPin: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  locDot: { width: 5, height: 5, borderRadius: 3 },
-  locTail: { width: 3, height: 7, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, marginTop: -1 },
-  // card
-  crdCard: { width: '88%', height: '62%', borderWidth: 1.5, borderRadius: 3, overflow: 'hidden', justifyContent: 'space-between', padding: 2 },
-  crdStrip: { height: 5, marginHorizontal: -2, marginTop: -2 },
-  crdChip: { width: 8, height: 6, borderRadius: 1, marginLeft: 2, marginBottom: 2 },
-  // chat
-  chatBubble: { borderWidth: 1.5, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 },
-  chatDot: { width: 3, height: 3, borderRadius: 2 },
-  chatTail: { width: 5, height: 5, borderBottomLeftRadius: 3, borderBottomRightRadius: 1, position: 'absolute', bottom: 3, left: '18%', transform: [{ rotate: '15deg' }] },
-  // users
-  usr2Head: { position: 'absolute', width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, top: 2, right: 4 },
-  usr2Body: { position: 'absolute', width: 14, height: 8, borderTopLeftRadius: 7, borderTopRightRadius: 7, borderWidth: 1.5, borderBottomWidth: 0, bottom: 2, right: 1 },
-  usr1Head: { position: 'absolute', width: 9, height: 9, borderRadius: 4.5, borderWidth: 1.5, top: 1, left: 3, backgroundColor: '#EBF5FC' },
-  usr1Body: { position: 'absolute', width: 16, height: 9, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderWidth: 1.5, borderBottomWidth: 0, bottom: 1, left: 0, backgroundColor: '#EBF5FC' },
-  // chart
-  chartBase: { width: '88%', height: '82%', borderBottomWidth: 1.5, borderLeftWidth: 1.5, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', paddingHorizontal: 2, paddingBottom: 2 },
-  chartBar: { width: 5, borderRadius: 2 },
-  // settings
-  gearOuter: { borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  gearInner: { width: 7, height: 7, borderRadius: 3.5, borderWidth: 1.5 },
-  gearTooth: { position: 'absolute', width: 4, height: 8, borderRadius: 2 },
-  // pill
-  pillOuter: { borderWidth: 2, overflow: 'hidden', flexDirection: 'row' },
-  pillDivider: { position: 'absolute', left: '48%', width: 2, top: -1, bottom: -1 },
-  pillLeft: { width: '49%', height: '100%', opacity: 0.3 },
-  // home
-  homeWrap: { alignItems: 'center' },
-  homeRoof: { width: 0, height: 0, borderLeftWidth: 11, borderRightWidth: 11, borderBottomWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent' },
-  homeBody: { width: 16, height: 11, borderWidth: 1.5, borderTopWidth: 0, alignItems: 'center', justifyContent: 'flex-end' },
-  homeDoor: { width: 6, height: 7, borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
-  // three dots
-  dotsRow: { flexDirection: 'row', gap: 3, alignItems: 'center', height: 22, justifyContent: 'center' },
-  dotsDot: { width: 4, height: 4, borderRadius: 2 },
-  // logo
-  logoOuter: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#1565C0', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  logoLeft: { position: 'absolute', left: 0, top: 0, width: 23, height: 46, backgroundColor: '#1976D2' },
-  logoCross: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
-  logoCrossV: { position: 'absolute', width: 6, height: 22, backgroundColor: '#fff', borderRadius: 2 },
-  logoCrossH: { position: 'absolute', width: 22, height: 6, backgroundColor: '#fff', borderRadius: 2 },
-  // bell
-  bellWrap: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  bellTop: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#5E7A8A' },
-  bellBody: { width: 18, height: 14, borderTopLeftRadius: 9, borderTopRightRadius: 9, borderWidth: 2, borderColor: '#5E7A8A', borderBottomWidth: 0 },
-  bellClapper: { width: 8, height: 4, borderBottomLeftRadius: 4, borderBottomRightRadius: 4, borderWidth: 2, borderTopWidth: 0, borderColor: '#5E7A8A' },
+const logo = StyleSheet.create({
+  outer:  { width: 46, height: 46, borderRadius: 23, backgroundColor: '#1565C0', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  left:   { position: 'absolute', left: 0, top: 0, width: 23, height: 46, backgroundColor: '#1976D2' },
+  cross:  { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  crossV: { position: 'absolute', width: 6, height: 22, backgroundColor: '#fff', borderRadius: 2 },
+  crossH: { position: 'absolute', width: 22, height: 6, backgroundColor: '#fff', borderRadius: 2 },
 });
 
 // ─────────────────────────────────────────────────────────────────

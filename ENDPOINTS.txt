@@ -1,0 +1,680 @@
+================================================================================
+ API TEA-CE — MAPA DE ENDPOINTS  (atualizado: 2026-05-24 — filtro de status em agendamentos)
+ Base URL : /api/v1/
+ Auth     : Authorization: Bearer <access_token>  (em todos exceto auth/login/)
+ Clínica  : X-Clinica-ID: <id>                    (em todos exceto auth/)
+================================================================================
+
+── FORMATO PADRÃO DE ERRO ──────────────────────────────────────────────────────
+
+  Todos os erros da API seguem o contrato abaixo (handler: apps.api.exceptions):
+
+  400 Validação:
+    { "status": "error", "code": "validation_error", "errors": { "campo": ["msg"] } }
+
+  401 Autenticação:
+    { "status": "error", "code": "authentication_error", "detail": "..." }
+
+  403 Permissão:
+    { "status": "error", "code": "permission_denied",   "detail": "..." }
+
+  404 Não encontrado:
+    { "status": "error", "code": "not_found",           "detail": "..." }
+
+  429 Throttle:
+    { "status": "error", "code": "throttled", "detail": "...", "retry_after": 60 }
+
+  500 Interno:
+    { "detail": "Erro interno do servidor." }
+
+── PAGINAÇÃO ────────────────────────────────────────────────────────────────────
+
+  Endpoints de listagem usam paginação por número de página.
+  Parâmetros: ?page=<N>  ?page_size=<N>  (padrão: 20, máximo: 100)
+
+  Formato de resposta:
+  {
+    "count":    248,
+    "next":     "http://host/api/v1/paciente/?page=2" | null,
+    "previous": null,
+    "results":  [ ... ]
+  }
+
+================================================================================
+ 1. AUTENTICAÇÃO  /api/v1/auth/
+================================================================================
+
+Login usa e-mail (não CPF). ROTATE_REFRESH_TOKENS=True: cada chamada a
+auth/refresh/ retorna um novo par access+refresh e invalida o anterior.
+
+────────────────────────────────────────────────────────────────────────────────
+POST  auth/login/
+  Autenticação por e-mail + senha. Retorna tokens e lista de clínicas.
+
+  Request:
+    { "email": "usuario@email.com", "password": "senha123" }
+
+  Response 200:
+    {
+      "access":  "eyJ...",
+      "refresh": "eyJ...",
+      "usuario": {
+        "id":    1,
+        "nome":  "Anderson Silva",
+        "email": "anderson@email.com",
+        "cpf":   "123.456.789-00"  // obtido do perfil vinculado; null se não disponível
+      },
+      "clinicas": [
+        {
+          "id":           1,
+          "nome":         "Clínica TEA Centro",
+          "tipo_usuario": "ADMIN",
+          "tela_inicial": "AdminHome"
+        }
+      ]
+    }
+
+  Erros: 401 (credenciais inválidas), 400 (campos ausentes)
+  Nota: o app mobile deve usar a lista "clinicas" para exibir o seletor de
+  clínica antes de prosseguir. Enviar X-Clinica-ID nos demais endpoints.
+
+────────────────────────────────────────────────────────────────────────────────
+POST  auth/refresh/
+  Renova o access token usando um refresh token válido.
+  ROTATE_REFRESH_TOKENS=True: devolve também um novo refresh token.
+
+  Request:
+    { "refresh": "eyJ..." }
+
+  Response 200:
+    { "access": "eyJ...", "refresh": "eyJ..." }
+
+  Erros: 401 { "detail": "Token is invalid or expired", "code": "token_not_valid" }
+
+────────────────────────────────────────────────────────────────────────────────
+POST  auth/logout/
+  Blacklist do refresh token. O access token continua válido até expirar (60 min).
+
+  Request:
+    Authorization: Bearer <access_token>
+    { "refresh": "eyJ..." }
+
+  Response 204 (sem body)
+
+  Erros: 400 (refresh ausente), 401 (token inválido/já blacklistado)
+
+────────────────────────────────────────────────────────────────────────────────
+GET   auth/me/
+  Dados do usuário autenticado e suas clínicas ativas.
+
+  Response 200:
+    {
+      "id":    1,
+      "nome":  "Anderson Silva",
+      "email": "anderson@email.com",
+      "cpf":   "123.456.789-00" | null,
+      "clinicas": [ { "id", "nome", "tipo_usuario", "tela_inicial" } ]
+    }
+
+================================================================================
+ 2. CLÍNICA E DASHBOARD  /api/v1/clinica/
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+GET   clinica/
+  Dados da clínica identificada por X-Clinica-ID e papel do usuário nela.
+
+  Response 200:
+    {
+      "id":                1,
+      "nome":              "Clínica TEA Centro",
+      "slug":              "clinica-tea-centro",
+      "cnpj":              "12.345.678/0001-00",
+      "telefone":          "85333330000",
+      "email":             "contato@clinica.com",
+      "foto":              "https://..." | null,
+      "endereco":          { "logradouro", "numero", "bairro", "cidade", "estado", "cep" },
+      "ativa":             true,
+      "data_criacao":      "2023-01-01T00:00:00Z",
+      "meu_papel":         "ADMIN",
+      "meu_papel_display": "Administrador",
+      "tipo_usuario_atual": "ADMIN"   // alias de meu_papel para o app mobile
+    }
+
+────────────────────────────────────────────────────────────────────────────────
+GET   clinica/dashboard/
+  Resumo operacional do dia atual. Shape varia por papel do usuário.
+
+  ── ADMIN / FUNC ──────────────────────────────────────────────────────────────
+  {
+    "consultas_hoje":          12,
+    "pacientes_ativos":        248,
+    "profissionais_presentes": 8,     // com agendamento ativo hoje
+    "profissionais_total":     10,
+    "funcionarios_presentes":  3,     // sem modelo de presença; usa total como proxy
+    "agendamentos_abertos":    34,    // status=aguardando, hoje
+    "agendamentos_urgentes":   8,     // aguardando + status_operacional=atrasado
+    "agendamentos_cancelados": 5,     // status=cancelado, hoje
+    "chamados_abertos":        0,     // módulo não implementado
+    "faltas_pendentes":        8,     // FaltaProfissional a partir de hoje (hoje inclusive)
+    "faltas_hoje":             2,     // FaltaProfissional com data == hoje
+    "relatorios_pendentes":    0,     // módulo não implementado
+    "alertas": [
+      {
+        "tipo":       "warning" | "error" | "info",
+        "titulo":     "Consultas atrasadas",
+        "descricao":  "8 consulta(s) aguardando além do horário",
+        "quantidade": 8
+      }
+    ],
+    "atividade_recente": [
+      {
+        "id":         42,
+        "tipo":       "consulta_realizada" | "ausencia_registrada" | "agendamento_criado",
+        "descricao":  "João Silva — Realizado",
+        "timestamp":  "2024-05-24T13:40:00+00:00",
+        "status":     "success" | "error" | "warning" | "info"
+      }
+    ],
+    "equipe_hoje": [
+      {
+        "id":              1,
+        "nome":            "Dr. Carlos Lima",
+        "papel":           "PROF" | "FUNC",
+        "especialidade":   "Psiquiatra",
+        "presente":        true,
+        "proximo_horario": "14:00" | null
+      }
+    ],
+    "cadastros_recentes": [   // 5 profissionais ativos mais recentes (maior id)
+      {
+        "id":           12,
+        "nome":         "Dra. Beatriz Melo",
+        "funcao":       "Fonoaudióloga",
+        "data_ingresso": "2026-05-10T00:00:00+00:00",  // ISO-8601, null se ausente
+        "foto_url":     "https://..." | null
+      }
+    ]
+  }
+
+  ── PROF ──────────────────────────────────────────────────────────────────────
+  {
+    "consultas_hoje":      5,
+    "proxima_consulta": {
+      "paciente_nome": "João Silva",
+      "hora":          "14:00",
+      "tipo":          "Psiquiatra"
+    } | null,
+    "pacientes_ativos":    32,   // pacientes únicos com agendamentos futuros pendentes
+    "agendamentos_abertos": 10,
+    "faltas_pendentes":    2,
+    "atividade_recente":   [ ... ]
+  }
+
+  ── RESP ──────────────────────────────────────────────────────────────────────
+  {
+    "pacientes_vinculados": 2,
+    "proximo_agendamento": {
+      "paciente_nome":     "Filho 1",
+      "profissional_nome": "Dr. Carlos",
+      "data":              "2024-05-25",
+      "hora":              "10:00"
+    } | null,
+    "eventos_recentes":  3,    // eventos dos últimos 30 dias
+    "atividade_recente": [ ... ]
+  }
+
+  ── PAC ───────────────────────────────────────────────────────────────────────
+  {
+    "proximo_agendamento": {
+      "profissional_nome": "Dr. Carlos",
+      "data":              "2024-05-25",
+      "hora":              "10:00"
+    } | null,
+    "total_sessoes":    12,
+    "medicacoes_ativas": 2,
+    "atividade_recente": [ ... ]
+  }
+
+================================================================================
+ 3. ADMINISTRADOR  /api/v1/admin/
+================================================================================
+
+GET    admin/perfil/         — Perfil do administrador autenticado
+PATCH  admin/perfil/         — Atualização parcial do perfil
+
+Nota: criação e gestão de usuários (profissional, funcionário, paciente,
+responsável) é funcionalidade exclusiva do painel web. O app mobile é
+somente leitura para gestão de usuários.
+
+================================================================================
+ 4. PROFISSIONAL  /api/v1/profissional/
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+GET   profissional/
+  Lista profissionais ativos da clínica.
+  Permitido: ADMIN, PROF, FUNC.
+  Filtros: ?search=<nome>  |  ?ordering=nome
+  Retorna lista simples (sem paginação): [ { id, nome, email, funcao, telefone, foto_url, data_ingresso } ]
+  Nota: foto_url e data_ingresso são string ISO-8601 ou null.
+
+────────────────────────────────────────────────────────────────────────────────
+GET   profissional/<id>/                                          [NOVO]
+  Detalhe de um profissional da clínica.
+  ADMIN e FUNC: qualquer ID da clínica.
+  PROF: apenas o próprio ID.
+
+  Response 200:
+    {
+      "id":           1,
+      "nome":         "Dr. Carlos Lima",
+      "email":        "carlos@clinica.com",
+      "cpf":          "123.456.789-00",
+      "funcao":       "Psiquiatra",
+      "telefone":     "85999990000",
+      "ativo":        true,
+      "data_ingresso": "2023-01-15T00:00:00Z",
+      "foto_url":     "https://..." | null
+    }
+
+  Erros: 403 (sem permissão), 404 (não encontrado nesta clínica)
+
+────────────────────────────────────────────────────────────────────────────────
+GET   profissional/perfil/   — Perfil completo do profissional autenticado
+PATCH profissional/perfil/   — Atualização parcial do perfil
+  Campos editáveis: telefone, data_nascimento, foto, endereco
+  Campos somente leitura: id, cpf, funcao, ativo
+
+================================================================================
+ 5. FUNCIONÁRIO  /api/v1/funcionario/
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+GET   funcionario/
+  Lista funcionários ativos da clínica.
+  Permitido: ADMIN, PROF, FUNC.
+  Retorna lista simples: [ { id, nome, email, funcao, telefone, foto } ]
+
+────────────────────────────────────────────────────────────────────────────────
+GET   funcionario/<id>/                                           [NOVO]
+  Detalhe de um funcionário da clínica.
+  Restrito a ADMIN.
+
+  Response 200:
+    {
+      "id":           1,
+      "nome":         "Ana Santos",
+      "email":        "ana@clinica.com",
+      "cpf":          "987.654.321-00",
+      "funcao":       "Recepcionista",
+      "telefone":     "85988880000",
+      "data_ingresso": "2022-06-01T00:00:00Z",
+      "ativo":        true,     // obtido de UsuarioClinica.ativo (não do model)
+      "foto_url":     "https://..." | null
+    }
+
+  Erros: 403 (não é ADMIN), 404 (não encontrado nesta clínica)
+
+────────────────────────────────────────────────────────────────────────────────
+GET   funcionario/perfil/    — Perfil completo do funcionário autenticado
+PATCH funcionario/perfil/    — Atualização parcial do perfil
+  Campos editáveis: telefone, data_nascimento, foto, endereco
+  Campos somente leitura: id, cpf, funcao
+
+================================================================================
+ 6. RESPONSÁVEL  /api/v1/responsavel/
+================================================================================
+
+GET    responsavel/              — Lista responsáveis da clínica. Filtros: ?search=<nome>
+GET    responsavel/<id>/         — Detalhe do responsável, incluindo endereço
+GET    responsavel/perfil/       — Perfil do responsável autenticado
+PATCH  responsavel/perfil/       — Atualização parcial
+GET    responsavel/pacientes/    — Pacientes vinculados ao responsável autenticado
+
+================================================================================
+ 7. PACIENTE  /api/v1/paciente/
+================================================================================
+
+GET    paciente/                 — Lista pacientes da clínica. Filtros: ?search=<nome>  ?ativo=true/false
+GET    paciente/<id>/            — Detalhe do paciente, incluindo seus responsáveis
+GET    paciente/perfil/          — Perfil do paciente autenticado
+PATCH  paciente/perfil/          — Atualização parcial
+GET    paciente/responsaveis/    — Responsáveis do paciente autenticado na clínica
+
+================================================================================
+ 8. AGENDA  /api/v1/agenda/
+================================================================================
+
+ ── Agendamentos ──────────────────────────────────────────────────────────────
+
+GET    agenda/agendamentos/
+  Lista agendamentos com paginação.
+
+  Visibilidade por papel:
+    ADMIN/FUNC : todos os agendamentos da clínica
+    PROF       : apenas os seus próprios agendamentos
+    RESP       : agendamentos dos seus pacientes vinculados
+    PAC        : apenas os seus próprios
+
+  ── FILTRO DE STATUS (obrigatório entender antes de usar) ───────────────────
+
+  Por padrão, a listagem EXCLUI agendamentos com status "cancelado" e
+  "remarcado". Isso evita poluição na tela principal do app mobile.
+  Para acessá-los use ?status= conforme tabela abaixo.
+
+  ?status=<valor>   Comportamento
+  ─────────────────────────────────────────────────────────────────────────────
+  (sem parâmetro)   Retorna: aguardando + realizado + nao_compareceu
+                    Exclui : cancelado, remarcado
+
+  aguardando        Todos os agendamentos aguardando atendimento,
+                    incluindo os atrasados e os confirmados.
+                    Use quando quiser a fila completa do dia.
+
+  atrasado          Agendamentos com status=aguardando cuja data/hora já
+                    passou. Calculado em tempo real pelo servidor — não
+                    depende do campo status_operacional no banco.
+                    Use na tela de pendências/alertas do app.
+
+  cancelado         Apenas agendamentos cancelados.
+                    Use no histórico de cancelamentos ou auditoria.
+
+  remarcado         Apenas agendamentos que foram remarcados.
+                    O campo "origem_remarcacao" indica o agendamento
+                    anterior na cadeia de remarcação.
+
+  realizado         Apenas os realizados.
+
+  nao_compareceu    Apenas os com não comparecimento registrado.
+
+  todos             Retorna absolutamente tudo, sem nenhuma exclusão.
+                    Use com cuidado — pode gerar payloads grandes.
+
+  Exemplo — tela de pendências (atrasados):
+    GET agenda/agendamentos/?status=atrasado
+
+  Exemplo — histórico de cancelamentos de um paciente:
+    GET agenda/agendamentos/?status=cancelado&paciente_id=42
+
+  Exemplo — agenda do dia de um profissional:
+    GET agenda/agendamentos/?status=aguardando&profissional_id=7&data_inicio=2026-05-24&data_fim=2026-05-24
+
+  ── DEMAIS FILTROS ──────────────────────────────────────────────────────────
+
+  ?data_inicio=YYYY-MM-DD   Filtra a partir desta data (inclusive)
+  ?data_fim=YYYY-MM-DD      Filtra até esta data (inclusive)
+  ?profissional_id=<id>     Filtra por profissional
+  ?paciente_id=<id>         Filtra por paciente
+  ?page=<N>                 Paginação (padrão: 20 por página)
+
+  ── SHAPE DA RESPOSTA (item da lista) ───────────────────────────────────────
+
+  {
+    "id":               42,
+    "paciente_id":      10,
+    "paciente_nome":    "João Silva",
+    "profissional_nome":"Dr. Carlos Lima",
+    "data":             "2026-05-24",
+    "hora_inicio":      "14:00:00",
+    "hora_fim":         "14:50:00",
+    "status":           "aguardando",          // status clínico
+    "status_operacional": "atrasado",          // status operacional no banco
+    "visual_status": {
+      "label":   "Aguardando",
+      "classe":  "slot-agendado slot-atrasado",// slot-atrasado = alerta visual
+      "icone":   "fa-clock-o",
+      "alerta":  true                          // presente apenas quando atrasado
+    }
+  }
+
+  Nota sobre "alerta" em visual_status:
+    O campo "alerta": true indica agendamento atrasado. É calculado em
+    tempo real pelo servidor na resposta — mesmo que status_operacional
+    no banco ainda não tenha sido atualizado, o app receberá o alerta
+    correto. Use este campo para exibir badges/indicadores visuais.
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/
+  Cria agendamento.
+  Obrigatório: configuracao_id, data, hora_inicio
+  RESP/PAC devem informar paciente_id.
+  Campos: configuracao_id, paciente_id (cond.), data, hora_inicio,
+          observacoes (opcional)
+
+────────────────────────────────────────────────────────────────────────────────
+GET    agenda/agendamentos/<id>/
+  Detalhe completo de um agendamento.
+
+  Shape adicional em relação à lista:
+    "profissional_id"     : <int>
+    "profissional_funcao" : "Psiquiatra"
+    "configuracao_id"     : <int>
+    "observacoes"         : "..." | null
+    "data_criacao"        : "2026-05-20T10:00:00Z"
+    "data_atualizacao"    : "2026-05-24T14:30:00Z"
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/<id>/remarcar/
+  Remarca para nova data/horário. Cria novo agendamento vinculado ao original.
+  Campos: nova_data, nova_hora_inicio, motivo_remarcacao (opcional)
+  Erros: 400 (data/horário inválido ou indisponível), 403 (sem permissão)
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/<id>/cancelar/
+  Cancela agendamento.
+  Campos: motivo (opcional)
+  Erros: 400 (transição de status inválida), 403 (sem permissão)
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/<id>/confirmar/
+  Confirma presença do paciente. Restrito a PROF, FUNC, ADMIN.
+  Sem body. Atualiza status_operacional para "confirmado".
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/<id>/realizar/
+  Marca como realizado. Restrito a PROF, FUNC, ADMIN.
+  Campos: observacoes (opcional)
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/agendamentos/<id>/nao-compareceu/
+  Registra não comparecimento. Restrito a PROF, FUNC, ADMIN.
+  Campos: motivo (opcional)
+
+ ── Horários Disponíveis ──────────────────────────────────────────────────────
+
+GET    agenda/horarios-disponiveis/
+  Slots de horário livre de um profissional em uma data.
+  Parâmetros obrigatórios: ?configuracao_id=<id>  ?data=YYYY-MM-DD
+
+  Response 200 — dia bloqueado (feriado, falta, fim de semana):
+    { "bloqueado": true, "motivo": "falta", "descricao": "...", "slots": [] }
+
+  Response 200 — dia disponível:
+    {
+      "bloqueado": false,
+      "slots": [
+        {
+          "hora_inicio": "08:00:00",
+          "hora_fim":    "08:50:00",
+          "disponivel":  true,
+          "status":      "livre",
+          "descricao":   null,
+          "agendamento": null
+        },
+        {
+          "hora_inicio": "09:00:00",
+          "hora_fim":    "09:50:00",
+          "disponivel":  false,
+          "status":      "ocupado",
+          "descricao":   "João Silva",
+          "agendamento": { "id": 42, "paciente_id": 10, "paciente_nome": "João Silva" }
+        }
+      ]
+    }
+
+ ── Profissionais com Agenda ──────────────────────────────────────────────────
+
+GET    agenda/profissionais/
+  Lista profissionais da clínica com suas configurações de agenda.
+
+GET    agenda/profissionais/<id>/
+  Detalhe da configuração de agenda de um profissional (inclui feriados e faltas).
+
+ ── Feriados ──────────────────────────────────────────────────────────────────
+
+GET    agenda/feriados/          — Lista feriados locais. Filtros: ?ano=<ano>  ?ativo=true/false
+POST   agenda/feriados/          — Cria feriado local. Restrito a ADMIN.
+                                   Campos: data, descricao, ativo (opcional)
+GET    agenda/feriados/<id>/     — Detalhe do feriado
+PATCH  agenda/feriados/<id>/     — Atualiza feriado. Restrito a ADMIN.
+DELETE agenda/feriados/<id>/     — Remove feriado. Restrito a ADMIN.
+
+ ── Faltas do Profissional ────────────────────────────────────────────────────
+
+GET    agenda/faltas/
+  Lista faltas. Filtros: ?profissional_id=<id>  ?futuras=true/false
+  PROF: vê apenas as suas. ADMIN/FUNC: veem todas.
+
+POST   agenda/faltas/
+  Registra falta. Ao registrar, agendamentos do dia são cancelados
+  automaticamente com observação "Profissional ausente".
+  PROF registra a própria. ADMIN/FUNC informam profissional_id.
+  Campos: data, motivo (opcional)
+
+GET    agenda/faltas/<id>/       — Detalhe da falta
+DELETE agenda/faltas/<id>/       — Remove falta e restaura agendamentos cancelados.
+                                   Restrito a ADMIN ou ao próprio PROF.
+
+================================================================================
+ 9. SESSÃO TERAPÊUTICA  /api/v1/sessao/
+================================================================================
+
+GET    sessao/
+  Lista sessões com paginação.
+  Filtros: ?paciente_id  ?profissional_id  ?data_inicio  ?data_fim  ?status
+  Sessões privadas: visíveis apenas ao profissional criador.
+
+POST   sessao/
+  Cria sessão. Restrito a PROF e ADMIN.
+  Campos: paciente_id, data_sessao, status, descricao_atendimento,
+          visibilidade ('privada'|'equipe'|'responsaveis'), observacoes (opcional)
+
+GET    sessao/<id>/              — Detalhe da sessão
+PATCH  sessao/<id>/              — Atualiza sessão. Apenas o criador pode editar.
+
+GET    sessao/<id>/evolucoes/    — Lista domínios de evolução da sessão
+PUT    sessao/<id>/evolucoes/    — Bulk upsert de evoluções.
+                                   Body: [ { "dominio", "estado", "observacao" (opcional) } ]
+
+================================================================================
+ 10. MEDICAÇÃO  /api/v1/medicacao/
+================================================================================
+
+GET    medicacao/
+  Lista medicações com paginação.
+  Filtros: ?paciente_id  ?status  ?apenas_ativas=true
+
+POST   medicacao/
+  Prescreve nova medicação. Restrito a PROF e ADMIN.
+  Campos: paciente_id, medicamento, dosagem, frequencia, data_inicio,
+          indicacao (opcional), observacoes (opcional)
+
+GET    medicacao/<id>/           — Detalhe da medicação
+PATCH  medicacao/<id>/           — Atualiza medicação. Restrito a PROF e ADMIN.
+
+POST   medicacao/<id>/alterar/
+  Encerra a versão atual e abre nova (histórico).
+  Campos: data_inicio, medicamento, dosagem, frequencia, indicacao,
+          observacoes, motivo_alteracao (todos opcionais exceto data_inicio)
+
+POST   medicacao/<id>/interromper/
+  Suspende ou encerra medicação.
+  Campos: status ('suspensa'|'encerrada'), data_fim (opcional)
+
+================================================================================
+ 11. EVENTO COTIDIANO  /api/v1/evento/
+================================================================================
+
+GET    evento/
+  Lista eventos com paginação.
+  Filtros: ?paciente_id  ?categoria  ?data_inicio  ?data_fim
+  Equipe vê eventos com compartilhado_com_equipe=True.
+  RESP/PAC veem apenas os seus.
+
+POST   evento/
+  Registra evento. Restrito a RESP, ADMIN e FUNC.
+  Campos: paciente_id, categoria, descricao, data_evento,
+          compartilhado_com_equipe (opcional, default: True)
+
+GET    evento/<id>/              — Detalhe do evento
+PATCH  evento/<id>/              — Restrito a ADMIN ou responsável que criou
+DELETE evento/<id>/              — Restrito a ADMIN ou responsável que criou
+
+================================================================================
+ 12. FORMULÁRIO  /api/v1/formulario/
+================================================================================
+
+GET    formulario/               — Lista modelos disponíveis para o papel do usuário
+GET    formulario/<id>/          — Detalhe com todos os campos para renderização
+POST   formulario/<id>/responder/
+  Envia respostas.
+  Campos: paciente_id (obrigatório para não-PAC),
+          respostas: [ { "campo_id", "resposta" } ]
+
+GET    formulario/respostas/
+  Lista respostas submetidas.
+  Filtros: ?paciente_id  ?formulario_id
+
+================================================================================
+ 13. TIMELINE CLÍNICA  /api/v1/timeline/
+================================================================================
+
+GET    timeline/
+  Linha do tempo clínica em ordem cronológica decrescente.
+  Parâmetro obrigatório: ?paciente_id=<id>
+  Filtros opcionais: ?tipo_evento  ?data_inicio  ?data_fim
+  Sessões privadas são ocultadas para usuários sem permissão.
+
+================================================================================
+ 14. DOCUMENTAÇÃO  /api/
+================================================================================
+
+GET    /api/schema/   — Schema OpenAPI 3 (YAML/JSON)
+GET    /api/docs/     — Swagger UI interativo
+GET    /api/redoc/    — ReDoc
+
+================================================================================
+ RESUMO DE PERMISSÕES
+================================================================================
+
+ ADMIN   — Acesso total. Único que pode acessar GET funcionario/<id>/.
+ FUNC    — Acesso administrativo semelhante ao ADMIN (leitura).
+           Pode criar/gerenciar agendamentos e registrar faltas.
+ PROF    — Acessa seus agendamentos, sessões e pacientes.
+           Em GET profissional/<id>/: apenas o próprio ID.
+ RESP    — Apenas seus pacientes. Pode ver agendamentos e sessões
+           não-privadas. Pode criar eventos e responder formulários.
+ PAC     — Apenas seus próprios dados. Pode responder formulários.
+
+================================================================================
+ OBSERVAÇÕES TÉCNICAS
+================================================================================
+
+ Token lifetime:
+   access : 60 minutos
+   refresh: 30 dias (rotacionado a cada uso)
+
+ CPF no login:
+   O campo "cpf" em auth/login/ vem do perfil vinculado ao usuário
+   (Profissional > Funcionario > Paciente). Retorna null para usuários
+   sem perfil com CPF (ex: administrador puro sem perfil de profissional).
+
+ Campo "ativo" em funcionario/<id>/:
+   O model Funcionario não possui campo "ativo". O valor é obtido de
+   UsuarioClinica.ativo — indica se o vínculo com a clínica está ativo.
+
+ chamados_abertos / relatorios_pendentes:
+   Módulos não implementados. Retornam sempre 0 no dashboard.
+
+================================================================================

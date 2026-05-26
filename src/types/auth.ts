@@ -1,16 +1,19 @@
 export type TipoUsuario = 'ADMIN' | 'PROF' | 'FUNC' | 'RESP' | 'PAC';
 
 export interface ClinicaVinculo {
-  id: number;
-  nome: string;
-  tipo_usuario: TipoUsuario;
+  id:            number;
+  nome:          string;
+  tipo_usuario:  TipoUsuario;
+  tela_inicial?: string;
+  foto?:         string | null;
 }
 
 export interface Usuario {
-  id: number;
-  nome: string;
-  email: string;
+  id:           number;
+  nome:         string;
+  email:        string;
   tipo_usuario: TipoUsuario | null;
-  token: string;
-  clinicas: ClinicaVinculo[];
+  clinica_id:   number | null;       // clínica selecionada (X-Clinica-ID)
+  token:        string;              // access token
+  clinicas:     ClinicaVinculo[];
 }

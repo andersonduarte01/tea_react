@@ -1,19 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
+  ScrollView,
   View,
   Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   Image,
+  TouchableOpacity,
+  StyleSheet,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
-import { useAuth } from '../../contexts/AuthContext';
-import { useApi } from '../../contexts/ApiContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api, SessionExpiredError, STORAGE, getBaseUrl } from '../../services/httpClient';
 
-// ─── Tipos ────────────────────────────────────────────────────────
-
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface DiasTrabalho {
   segunda: boolean;
   terca:   boolean;
@@ -25,7 +24,7 @@ interface DiasTrabalho {
 }
 
 interface ProfAgendaItem {
-  id:             number;   // ConfiguracaoAgenda.id
+  id:             number;
   nome:           string;
   funcao:         string;
   foto:           string | null;
@@ -49,17 +48,18 @@ interface Falta {
 }
 
 interface ProfAgendaDetalhe extends ProfAgendaItem {
-  profissional_id:          number;
-  hora_almoco_inicio:       string | null;
-  hora_almoco_fim:          string | null;
+  profissional_id:           number;
+  hora_almoco_inicio:        string | null;
+  hora_almoco_fim:           string | null;
   atende_feriados_nacionais: boolean;
   atende_feriados_locais:    boolean;
   feriados_locais:           Feriado[];
   faltas:                    Falta[];
 }
 
-// ─── Dias da semana ───────────────────────────────────────────────
+type ApiResponse = ProfAgendaItem[] | { results: ProfAgendaItem[] };
 
+// ─── Constants ────────────────────────────────────────────────────────────────
 const DIAS: { key: keyof DiasTrabalho; label: string }[] = [
   { key: 'segunda', label: 'Seg' },
   { key: 'terca',   label: 'Ter' },
@@ -70,48 +70,66 @@ const DIAS: { key: keyof DiasTrabalho; label: string }[] = [
   { key: 'domingo', label: 'Dom' },
 ];
 
-// ─── Avatar ───────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function getInitials(name: string): string {
+  return name.split(' ').filter(w => w.length > 1).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+}
 
-function Avatar({ nome, fotoUrl }: { nome: string; fotoUrl?: string | null }) {
-  const [imgErro, setImgErro] = useState(false);
-  const initials = nome
-    .split(' ')
-    .filter(w => w.length > 2)
-    .slice(0, 2)
-    .map(w => w[0].toUpperCase())
-    .join('');
+function resolveUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  if (!u) return null;
+  if (u.startsWith('http://') || u.startsWith('https://')) return u;
+  const base = getBaseUrl().replace(/\/$/, '');
+  return `${base}${u.startsWith('/') ? u : `/${u}`}`;
+}
 
-  if (fotoUrl && !imgErro) {
-    return (
-      <Image
-        source={{ uri: fotoUrl }}
-        style={styles.avatarImg}
-        onError={() => setImgErro(true)}
-      />
-    );
+function formatarData(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ─── AuthAvatar ───────────────────────────────────────────────────────────────
+function AuthAvatar({ name, uri }: { name: string; uri: string | null }) {
+  const [dataUri, setDataUri] = useState<string | null>(null);
+  const safeUri = resolveUrl(uri);
+
+  useEffect(() => {
+    if (!safeUri) { setDataUri(null); return; }
+    let cancelled = false;
+    setDataUri(null);
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem(STORAGE.ACCESS);
+        if (!token || cancelled) return;
+        const res = await fetch(safeUri, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (!cancelled && typeof reader.result === 'string') setDataUri(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [safeUri]);
+
+  if (dataUri) {
+    return <Image source={{ uri: dataUri }} style={s.avatarImg} />;
   }
   return (
-    <View style={styles.avatar}>
-      <Text style={styles.avatarText}>{initials}</Text>
+    <View style={s.avatarCircle}>
+      <Text style={s.avatarInitials}>{getInitials(name)}</Text>
     </View>
   );
 }
 
-// ─── Card expandível ──────────────────────────────────────────────
-
-function ProfCard({
-  prof,
-  token,
-  clinicaId,
-  baseUrl,
-}: {
-  prof: ProfAgendaItem;
-  token: string;
-  clinicaId: number;
-  baseUrl: string;
-}) {
-  const [expandido, setExpandido] = useState(false);
-  const [detalhe, setDetalhe] = useState<ProfAgendaDetalhe | null>(null);
+// ─── Expandable Card ──────────────────────────────────────────────────────────
+function ProfCard({ prof }: { prof: ProfAgendaItem }) {
+  const [expandido, setExpandido]           = useState(false);
+  const [detalhe, setDetalhe]               = useState<ProfAgendaDetalhe | null>(null);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
 
   const abrirDetalhe = useCallback(async () => {
@@ -119,50 +137,30 @@ function ProfCard({
     setExpandido(true);
     setLoadingDetalhe(true);
     try {
-      const res = await fetch(`${baseUrl}/api/agenda/profissionais/${prof.id}/`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'X-Clinica-ID': String(clinicaId),
-        },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setDetalhe(json);
-      }
-    } finally {
-      setLoadingDetalhe(false);
-    }
-  }, [detalhe, prof.id, token, clinicaId, baseUrl]);
+      const data = await api.get<ProfAgendaDetalhe>(`/api/v1/agenda/profissionais/${prof.id}/`);
+      setDetalhe(data);
+    } catch {}
+    finally { setLoadingDetalhe(false); }
+  }, [detalhe, prof.id]);
 
   const dias = prof.dias_trabalho;
 
   return (
-    <View style={styles.card}>
-      {/* ── Linha principal ── */}
-      <TouchableOpacity
-        style={styles.cardHeader}
-        onPress={abrirDetalhe}
-        activeOpacity={0.75}
-      >
-        <Avatar nome={prof.nome} fotoUrl={prof.foto} />
-
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardNome}>{prof.nome}</Text>
-          <Text style={styles.cardFuncao}>{prof.funcao}</Text>
-          <Text style={styles.cardHorario}>
+    <View style={s.card}>
+      <TouchableOpacity onPress={abrirDetalhe} activeOpacity={0.75} style={s.cardHeader}>
+        <AuthAvatar name={prof.nome} uri={prof.foto} />
+        <View style={s.cardBody}>
+          <Text style={s.nome}>{prof.nome}</Text>
+          <Text style={s.funcao}>{prof.funcao}</Text>
+          <Text style={s.horario}>
             🕐 {prof.hora_inicio?.slice(0, 5)} – {prof.hora_fim?.slice(0, 5)}
             {'  ·  '}{prof.duracao_sessao} min/sessão
           </Text>
-
-          {/* Chips de dias */}
           {dias && (
-            <View style={styles.diasRow}>
+            <View style={s.diasRow}>
               {DIAS.map(d => (
-                <View
-                  key={d.key}
-                  style={[styles.diaChip, dias[d.key] && styles.diaChipAtivo]}
-                >
-                  <Text style={[styles.diaChipText, dias[d.key] && styles.diaChipTextAtivo]}>
+                <View key={d.key} style={[s.diaChip, dias[d.key] && s.diaChipOn]}>
+                  <Text style={[s.diaChipText, dias[d.key] && s.diaChipTextOn]}>
                     {d.label}
                   </Text>
                 </View>
@@ -170,72 +168,63 @@ function ProfCard({
             </View>
           )}
         </View>
-
-        <Text style={styles.expandIcon}>{expandido ? '▲' : '▼'}</Text>
+        <Text style={s.expandIcon}>{expandido ? '▲' : '▼'}</Text>
       </TouchableOpacity>
 
-      {/* ── Detalhe expandido ── */}
       {expandido && (
-        <View style={styles.detalheWrap}>
+        <View style={s.detalheWrap}>
+          <View style={s.divider} />
           {loadingDetalhe ? (
-            <ActivityIndicator size="small" color="#1565C0" style={{ marginVertical: 12 }} />
+            <ActivityIndicator size="small" color="#2563EB" style={s.detalheLoader} />
           ) : detalhe ? (
-            <>
-              <View style={styles.detalheDivider} />
-
-              {/* Almoço */}
+            <View style={s.detalhePad}>
               {detalhe.hora_almoco_inicio && (
-                <View style={styles.detalheRow}>
-                  <Text style={styles.detalheLabel}>🍽 Almoço</Text>
-                  <Text style={styles.detalheValor}>
+                <View style={s.detalheRow}>
+                  <Text style={s.detalheLabel}>🍽 Almoço</Text>
+                  <Text style={s.detalheValor}>
                     {detalhe.hora_almoco_inicio.slice(0, 5)} – {detalhe.hora_almoco_fim?.slice(0, 5)}
                   </Text>
                 </View>
               )}
-
-              {/* Feriados */}
-              <View style={styles.detalheRow}>
-                <Text style={styles.detalheLabel}>🗓 Feriados nacionais</Text>
-                <Text style={styles.detalheValor}>
+              <View style={s.detalheRow}>
+                <Text style={s.detalheLabel}>🗓 Feriados nacionais</Text>
+                <Text style={s.detalheValor}>
                   {detalhe.atende_feriados_nacionais ? 'Atende' : 'Não atende'}
                 </Text>
               </View>
 
-              {/* Feriados locais */}
               {detalhe.feriados_locais.length > 0 && (
-                <View style={styles.detalheBloco}>
-                  <Text style={styles.detalheBlocoTitle}>
+                <View style={s.detalheBloco}>
+                  <Text style={s.detalheBlocoTitle}>
                     Feriados locais ({detalhe.feriados_locais.length})
                   </Text>
                   {detalhe.feriados_locais.map(f => (
-                    <Text key={f.id} style={styles.detalheBlocoItem}>
+                    <Text key={f.id} style={s.detalheBlocoItem}>
                       • {formatarData(f.data)}  –  {f.descricao}
                     </Text>
                   ))}
                 </View>
               )}
 
-              {/* Faltas futuras */}
               {detalhe.faltas.length > 0 && (
-                <View style={styles.detalheBloco}>
-                  <Text style={[styles.detalheBlocoTitle, { color: '#B71C1C' }]}>
+                <View style={s.detalheBloco}>
+                  <Text style={s.detalheBlocoTitleDanger}>
                     Faltas agendadas ({detalhe.faltas.length})
                   </Text>
                   {detalhe.faltas.map(f => (
-                    <Text key={f.id} style={styles.detalheBlocoItem}>
-                      • {formatarData(f.data)}
-                      {f.motivo ? `  –  ${f.motivo}` : ''}
+                    <Text key={f.id} style={s.detalheBlocoItem}>
+                      • {formatarData(f.data)}{f.motivo ? `  –  ${f.motivo}` : ''}
                     </Text>
                   ))}
                 </View>
               )}
 
               {detalhe.feriados_locais.length === 0 && detalhe.faltas.length === 0 && (
-                <Text style={styles.detalheVazio}>Sem feriados locais ou faltas futuras.</Text>
+                <Text style={s.detalheVazio}>Sem feriados locais ou faltas futuras.</Text>
               )}
-            </>
+            </View>
           ) : (
-            <Text style={styles.detalheVazio}>Não foi possível carregar o detalhe.</Text>
+            <Text style={s.detalheVazio}>Não foi possível carregar o detalhe.</Text>
           )}
         </View>
       )}
@@ -243,221 +232,139 @@ function ProfCard({
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function formatarData(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
-
-// ─── Componente principal ─────────────────────────────────────────
-
+// ─── Main ─────────────────────────────────────────────────────────────────────
 export function AgendasLista() {
-  const { user } = useAuth();
-  const { baseUrl } = useApi();
-
-  const [dados, setDados] = useState<ProfAgendaItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [dados, setDados]           = useState<ProfAgendaItem[]>([]);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const clinicaId =
-    user?.clinicas.find(c => c.tipo_usuario === user?.tipo_usuario)?.id ??
-    user?.clinicas[0]?.id;
+  const [erro, setErro]             = useState<string | null>(null);
 
   const carregar = useCallback(async (isRefresh = false) => {
-    if (!user?.token || !clinicaId) {
-      setErro('Dados de autenticação ausentes.');
-      setLoading(false);
-      return;
-    }
-
     isRefresh ? setRefreshing(true) : setLoading(true);
     setErro(null);
-
     try {
-      const res = await fetch(`${baseUrl}/api/agenda/profissionais/`, {
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-          'X-Clinica-ID': String(clinicaId),
-        },
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail ?? `Erro ${res.status}`);
-      }
-
-      const json = await res.json();
+      const json = await api.get<ApiResponse>('/api/v1/agenda/profissionais/');
       setDados(Array.isArray(json) ? json : (json.results ?? []));
-    } catch (e: any) {
-      setErro(e.message ?? 'Erro ao carregar agendas.');
+    } catch (err: unknown) {
+      if (err instanceof SessionExpiredError) {
+        setErro('Sessão expirada. Faça login novamente.');
+      } else {
+        setErro((err as any)?.message ?? 'Erro ao carregar agendas.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.token, clinicaId, baseUrl]);
+  }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  // ── Loading ──
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#1565C0" />
-        <Text style={styles.loadingText}>Carregando agendas...</Text>
+      <View style={s.stateWrap}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={s.stateText}>Carregando agendas...</Text>
       </View>
     );
   }
 
-  // ── Erro ──
   if (erro) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.erroIcon}>⚠️</Text>
-        <Text style={styles.erroText}>{erro}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => carregar()} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Tentar novamente</Text>
+      <View style={s.stateWrap}>
+        <Text style={s.stateIcon}>⚠️</Text>
+        <Text style={s.stateErr}>{erro}</Text>
+        <TouchableOpacity style={s.retryBtn} onPress={() => carregar()} activeOpacity={0.8}>
+          <Text style={s.retryText}>Tentar novamente</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ── Lista ──
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Agendas</Text>
-          <Text style={styles.subtitle}>
-            {dados.length} profissional{dados.length !== 1 ? 'is' : ''} com agenda ativa
-          </Text>
-        </View>
+    <View style={s.root}>
+      <View style={s.header}>
+        <Text style={s.title}>Agendas</Text>
+        <Text style={s.subtitle}>
+          {dados.length} profissional{dados.length !== 1 ? 'is' : ''} com agenda ativa
+        </Text>
       </View>
 
-      {/* Vazio */}
-      {dados.length === 0 && (
-        <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>📅</Text>
-          <Text style={styles.emptyText}>Nenhuma agenda ativa na clínica.</Text>
+      {dados.length === 0 ? (
+        <View style={s.stateWrap}>
+          <Text style={s.stateIcon}>📅</Text>
+          <Text style={s.emptyTitle}>Nenhuma agenda ativa</Text>
+          <Text style={s.emptySubtitle}>Nenhum profissional com agenda configurada na clínica</Text>
         </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={s.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => carregar(true)}
+              colors={['#2563EB']}
+              tintColor="#2563EB"
+            />
+          }
+        >
+          <Text style={s.dica}>Toque em um profissional para ver detalhes da agenda.</Text>
+          {dados.map(prof => <ProfCard key={prof.id} prof={prof} />)}
+        </ScrollView>
       )}
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.list}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => carregar(true)}
-            colors={['#1565C0']}
-            tintColor="#1565C0"
-          />
-        }
-      >
-        <Text style={styles.dica}>Toque em um profissional para ver detalhes da agenda.</Text>
-        {dados.map(prof => (
-          <ProfCard
-            key={prof.id}
-            prof={prof}
-            token={user!.token}
-            clinicaId={clinicaId!}
-            baseUrl={baseUrl}
-          />
-        ))}
-      </ScrollView>
     </View>
   );
 }
 
-// ─── Estilos ──────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  root:     { flex: 1, backgroundColor: '#F1F5F9' },
+  header:   { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  title:    { fontSize: 22, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
+  subtitle: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  dica:     { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginBottom: 8 },
+  list:     { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, gap: 10 },
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F4F8FC' },
+  card:       { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3, overflow: 'hidden' },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', padding: 14, gap: 12 },
+  cardBody:   { flex: 1 },
 
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  loadingText: { marginTop: 12, fontSize: 14, color: '#5E7A8A' },
-  erroIcon: { fontSize: 40, marginBottom: 12 },
-  erroText: { fontSize: 14, color: '#B71C1C', textAlign: 'center', marginBottom: 20, lineHeight: 20 },
-  retryBtn: { backgroundColor: '#1565C0', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
-  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
-  emptyText: { fontSize: 14, color: '#5E7A8A', textAlign: 'center' },
+  nome:    { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  funcao:  { fontSize: 13, color: '#64748B', marginTop: 1 },
+  horario: { fontSize: 11, color: '#94A3B8', marginTop: 3 },
 
-  header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E4EEF5',
-  },
-  title: { fontSize: 20, fontWeight: '800', color: '#1A2340' },
-  subtitle: { fontSize: 12, color: '#6B8498', marginTop: 2 },
-
-  dica: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginBottom: 8 },
-
-  list: { paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
-
-  // ── Card ──
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#0D4B8F',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 14,
-    gap: 12,
-  },
-  avatarImg: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#EBF5FC' },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#EBF5FC',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#1565C0' },
-
-  cardInfo: { flex: 1, gap: 3 },
-  cardNome: { fontSize: 14, fontWeight: '700', color: '#1A2340' },
-  cardFuncao: { fontSize: 13, color: '#5E7A8A' },
-  cardHorario: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
-
-  diasRow: { flexDirection: 'row', gap: 4, marginTop: 6, flexWrap: 'wrap' },
-  diaChip: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: '#F0F4F8',
-  },
-  diaChipAtivo: { backgroundColor: '#1565C0' },
-  diaChipText: { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
-  diaChipTextAtivo: { color: '#fff' },
+  diasRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
+  diaChip:       { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: '#F0F4F8' },
+  diaChipOn:     { backgroundColor: '#2563EB' },
+  diaChipText:   { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
+  diaChipTextOn: { color: '#fff' },
 
   expandIcon: { fontSize: 11, color: '#94A3B8', marginTop: 4 },
 
-  // ── Detalhe ──
-  detalheWrap: { paddingHorizontal: 16, paddingBottom: 14 },
-  detalheDivider: { height: 1, backgroundColor: '#E4EEF5', marginBottom: 12 },
-  detalheRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  detalheLabel: { fontSize: 13, color: '#5E7A8A' },
-  detalheValor: { fontSize: 13, fontWeight: '600', color: '#1A2340' },
-  detalheBloco: { marginTop: 8, marginBottom: 4 },
-  detalheBlocoTitle: { fontSize: 12, fontWeight: '700', color: '#1565C0', marginBottom: 4 },
-  detalheBlocoItem: { fontSize: 12, color: '#5E7A8A', marginBottom: 2 },
-  detalheVazio: { fontSize: 12, color: '#94A3B8', textAlign: 'center', paddingVertical: 8 },
+  divider:       { height: 1, backgroundColor: '#E2E8F0' },
+  detalheWrap:   {},
+  detalheLoader: { marginVertical: 12 },
+  detalhePad:    { padding: 14, paddingTop: 12 },
+
+  detalheRow:              { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  detalheLabel:            { fontSize: 13, color: '#64748B' },
+  detalheValor:            { fontSize: 13, fontWeight: '600', color: '#0F172A' },
+  detalheBloco:            { marginTop: 8, marginBottom: 4 },
+  detalheBlocoTitle:       { fontSize: 12, fontWeight: '700', color: '#2563EB', marginBottom: 4 },
+  detalheBlocoTitleDanger: { fontSize: 12, fontWeight: '700', color: '#EF4444', marginBottom: 4 },
+  detalheBlocoItem:        { fontSize: 12, color: '#64748B', marginBottom: 2 },
+  detalheVazio:            { fontSize: 12, color: '#94A3B8', textAlign: 'center', paddingVertical: 8 },
+
+  avatarImg:      { width: 48, height: 48, borderRadius: 24 },
+  avatarCircle:   { width: 48, height: 48, borderRadius: 24, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
+
+  stateWrap:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingVertical: 40 },
+  stateIcon:    { fontSize: 48, marginBottom: 12 },
+  stateText:    { fontSize: 13, color: '#64748B', marginTop: 10 },
+  stateErr:     { fontSize: 13, color: '#EF4444', textAlign: 'center', marginBottom: 16 },
+  emptyTitle:   { fontSize: 15, fontWeight: '600', color: '#0F172A', textAlign: 'center', marginBottom: 4 },
+  emptySubtitle:{ fontSize: 13, color: '#64748B', textAlign: 'center' },
+  retryBtn:     { backgroundColor: '#2563EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
+  retryText:    { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

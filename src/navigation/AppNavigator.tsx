@@ -8,6 +8,10 @@ import { FuncionarioDashboard } from '../screens/dashboards/FuncionarioDashboard
 import { ResponsavelDashboard } from '../screens/dashboards/ResponsavelDashboard';
 import { PacienteDashboard } from '../screens/dashboards/PacienteDashboard';
 import { ClinicaSelectorScreen } from '../screens/clinica/ClinicaSelectorScreen';
+import { AgendamentosHojeScreen } from '../admin/AgendamentosHojeScreen';
+import { AgendamentosCompletosScreen } from '../admin/AgendamentosCompletosScreen';
+import { ClinicaPerfilScreen }   from '../screens/clinica/ClinicaPerfilScreen';
+import { ClinicaEditarScreen }   from '../screens/clinica/ClinicaEditarScreen';
 
 export type AppStackParams = {
   ClinicaSelector: undefined;
@@ -16,6 +20,10 @@ export type AppStackParams = {
   FuncionarioDashboard: undefined;
   ResponsavelDashboard: undefined;
   PacienteDashboard: undefined;
+  AgendamentosHoje: undefined;
+  AgendamentosCompletos: undefined;
+  ClinicaPerfil: undefined;
+  ClinicaEditar: undefined;
 };
 
 const DASHBOARD_BY_TYPE: Record<TipoUsuario, keyof AppStackParams> = {
@@ -46,6 +54,10 @@ export function AppNavigator() {
       <Stack.Screen name="FuncionarioDashboard"  component={FuncionarioDashboard} />
       <Stack.Screen name="ResponsavelDashboard"  component={ResponsavelDashboard} />
       <Stack.Screen name="PacienteDashboard"     component={PacienteDashboard} />
+      <Stack.Screen name="AgendamentosHoje"      component={AgendamentosHojeScreen} />
+      <Stack.Screen name="AgendamentosCompletos" component={AgendamentosCompletosScreen} />
+      <Stack.Screen name="ClinicaPerfil"         component={ClinicaPerfilScreen} />
+      <Stack.Screen name="ClinicaEditar"         component={ClinicaEditarScreen} />
     </Stack.Navigator>
   );
 }
