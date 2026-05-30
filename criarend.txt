@@ -1,0 +1,85 @@
+================================================================================
+CAUSA RAIZ IDENTIFICADA E CORRIGIDA
+Assunto : 409 em POST /api/v1/agenda/profissionais/
+Data    : 2026-05-29
+================================================================================
+
+RESULTADO DOS LOGS
+────────────────────────────────────────────────────────────────────────────────
+WARNING [AGENDA-POST] profissional_id_recebido=55 | profissional.pk=55 |
+        clinica.pk=3 | ativa=True existe: False | ativa=False existe: False |
+        todas as configs: []
+WARNING [AGENDA-POST] Criando nova config para profissional.pk=55
+ERROR   [AGENDA-POST] 409 via BLOCO B — IntegrityError para profissional.pk=55:
+        UNIQUE constraint failed: agenda_diastrabalho.configuracao_id
+
+DIAGNÓSTICO
+────────────────────────────────────────────────────────────────────────────────
+O erro NÃO estava em ConfiguracaoAgenda.
+O erro estava em DiasTrabalho.
+
+Sequência exata de eventos:
+  1. ConfiguracaoAgenda.objects.create(...) → SUCESSO, config.id = N
+  2. Signal post_save (signals.py:12-16) dispara automaticamente para created=True
+     → DiasTrabalho.objects.get_or_create(configuracao=config) → cria DiasTrabalho(id=M, configuracao_id=N)
+  3. View tenta DiasTrabalho.objects.create(configuracao=config, ...) → FALHA
+     → UNIQUE constraint failed: agenda_diastrabalho.configuracao_id
+     → IntegrityError capturado → 409
+
+CAUSA RAIZ
+────────────────────────────────────────────────────────────────────────────────
+O arquivo apps/agenda/signals.py define:
+
+  @receiver(post_save, sender=ConfiguracaoAgenda)
+  def criar_dias_trabalho(sender, instance, created, **kwargs):
+      if created:
+          DiasTrabalho.objects.get_or_create(configuracao=instance)
+
+Este signal é registrado via apps/agenda/apps.py → ready() → import signals.
+Toda vez que uma ConfiguracaoAgenda nova é salva (created=True), o signal
+cria automaticamente um DiasTrabalho com valores default.
+
+O view então tentava criar um SEGUNDO DiasTrabalho para o mesmo configuracao_id,
+violando a constraint OneToOneField → IntegrityError → 409.
+
+O branch de reativação (PASSO 6A) já estava correto pois usava update_or_create.
+O branch de criação nova (PASSO 6B) usava create e colhia o conflito do signal.
+
+CORREÇÃO APLICADA
+────────────────────────────────────────────────────────────────────────────────
+Arquivo : apps/api/agenda/views.py
+Método  : ProfissionaisAgendaView.post() — branch de criação nova (BLOCO B)
+
+  ANTES:
+    DiasTrabalho.objects.create(configuracao=config, **data['dias_trabalho'])
+
+  DEPOIS:
+    DiasTrabalho.objects.update_or_create(
+        configuracao=config,
+        defaults=data['dias_trabalho'],
+    )
+
+O update_or_create encontra o DiasTrabalho criado pelo signal e atualiza
+seus campos com os valores enviados pelo frontend. Sem conflito.
+Ambos os branches (reativação e criação nova) agora usam update_or_create.
+
+COMPORTAMENTO ESPERADO APÓS CORREÇÃO
+────────────────────────────────────────────────────────────────────────────────
+  • Profissional nunca teve agenda      → 201 (CREATE + update dias)  ✓
+  • Profissional tinha agenda inativa   → 201 (REATIVA + update dias) ✓
+  • Profissional já tem agenda ativa    → 409 legítimo                ✓
+  • Nenhum profissional em "Sem agenda" deve receber 409              ✓
+
+FRONTEND — NENHUMA ALTERAÇÃO NECESSÁRIA
+────────────────────────────────────────────────────────────────────────────────
+O código frontend estava correto em todos os pontos auditados.
+O bug era inteiramente no backend: conflito entre signal automático e
+criação manual de DiasTrabalho na mesma transação.
+
+NOTA SOBRE OS LOGS DE DIAGNÓSTICO
+────────────────────────────────────────────────────────────────────────────────
+Os logs temporários (bloco [AGENDA-POST]) permanecem no código por ora.
+Podem ser removidos após confirmação de que o fix está funcionando em produção.
+Estão marcados com comentário "DIAGNÓSTICO TEMPORÁRIO" no views.py.
+
+================================================================================

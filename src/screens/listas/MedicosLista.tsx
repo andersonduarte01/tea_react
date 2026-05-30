@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { Eye } from 'lucide-react-native';
 import {
   ScrollView,
   View,
@@ -11,14 +12,18 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { api, SessionExpiredError, STORAGE, getBaseUrl } from '../../services/httpClient';
+import { AppStackParams } from '../../navigation/AppNavigator';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ProfissionalAPI {
   id:             number;
   nome:           string;
   funcao:         string;
-  foto:           string | null;
+  foto_url:       string | null;
+  telefone:       string | null;
   hora_inicio:    string;
   hora_fim:       string;
   duracao_sessao: number;
@@ -79,7 +84,7 @@ function AuthAvatar({ name, uri }: { name: string; uri: string | null }) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
-function ProfCard({ prof }: { prof: ProfissionalAPI }) {
+function ProfCard({ prof, onView }: { prof: ProfissionalAPI; onView: () => void }) {
   const schedule =
     prof.hora_inicio && prof.hora_fim
       ? `${prof.hora_inicio.slice(0, 5)} – ${prof.hora_fim.slice(0, 5)}`
@@ -88,34 +93,48 @@ function ProfCard({ prof }: { prof: ProfissionalAPI }) {
   return (
     <View style={s.card}>
       <View style={s.cardRow}>
-        <AuthAvatar name={prof.nome} uri={prof.foto} />
+        <AuthAvatar name={prof.nome} uri={prof.foto_url} />
         <View style={s.cardBody}>
-          <Text style={s.nome}>{prof.nome}</Text>
-          <Text style={s.funcao}>{prof.funcao}</Text>
+          <Text style={s.nome} numberOfLines={1}>{prof.nome}</Text>
+          <Text style={s.funcao} numberOfLines={1}>{prof.funcao}</Text>
+          {prof.telefone && <Text style={s.telefone}>{prof.telefone}</Text>}
           {schedule && <Text style={s.schedule}>🕐 {schedule}</Text>}
         </View>
-        <View style={s.badge}>
-          <Text style={s.badgeText}>Ativo</Text>
-        </View>
+        <TouchableOpacity style={s.editBtn} onPress={onView} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Eye size={16} color="#94A3B8" />
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+interface MedicosListaProps {
+  buscaExterna?:  string;
+  onBuscaChange?: (v: string) => void;
+  onCountChange?: (n: number) => void;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function MedicosLista() {
+export function MedicosLista({ buscaExterna, onBuscaChange, onCountChange }: MedicosListaProps = {}) {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
   const [dados, setDados]           = useState<ProfissionalAPI[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro]             = useState<string | null>(null);
-  const [busca, setBusca]           = useState('');
+  const [buscaInterna, setBuscaInterna] = useState('');
+
+  const isControlled = buscaExterna !== undefined;
+  const busca        = isControlled ? buscaExterna : buscaInterna;
+  const setBusca     = isControlled ? (onBuscaChange ?? (() => {})) : setBuscaInterna;
 
   const carregar = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
     setErro(null);
     try {
       const json = await api.get<ApiResponse>('/api/v1/profissional/');
-      setDados(Array.isArray(json) ? json : (json.results ?? []));
+      const list = Array.isArray(json) ? json : (json.results ?? []);
+      setDados(list);
     } catch (err: unknown) {
       if (err instanceof SessionExpiredError) {
         setErro('Sessão expirada. Faça login novamente.');
@@ -128,7 +147,12 @@ export function MedicosLista() {
     }
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
+
+  useEffect(() => {
+    onCountChange?.(dados.length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados.length]);
 
   const filtrados = dados.filter(p =>
     p.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -158,33 +182,42 @@ export function MedicosLista() {
 
   return (
     <View style={s.root}>
-      <View style={s.header}>
-        <View>
-          <Text style={s.title}>Profissionais</Text>
-          <Text style={s.subtitle}>{dados.length} cadastrado{dados.length !== 1 ? 's' : ''}</Text>
-        </View>
-        <TouchableOpacity style={s.addBtn} activeOpacity={0.75}>
-          <Text style={s.addBtnText}>+ Novo</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Header e busca internos apenas no modo standalone (sem controle externo) */}
+      {!isControlled && (
+        <>
+          <View style={s.header}>
+            <Text style={s.title}>Profissionais</Text>
+            <Text style={s.subtitle}>{dados.length} cadastrado{dados.length !== 1 ? 's' : ''}</Text>
+          </View>
+          <View style={s.searchWrap}>
+            <View style={s.searchBar}>
+              <Text style={s.searchIcon}>🔍</Text>
+              <TextInput
+                style={s.searchInput}
+                value={busca}
+                onChangeText={setBusca}
+                placeholder="Buscar por nome ou função..."
+                placeholderTextColor="#94A3B8"
+                returnKeyType="search"
+              />
+              {busca.length > 0 && (
+                <TouchableOpacity onPress={() => setBusca('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.searchClear}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </>
+      )}
 
-      <View style={s.searchWrap}>
-        <View style={s.searchBar}>
-          <Text style={s.searchIcon}>🔍</Text>
-          <TextInput
-            style={s.searchInput}
-            value={busca}
-            onChangeText={setBusca}
-            placeholder="Buscar por nome ou função..."
-            placeholderTextColor="#94A3B8"
-            returnKeyType="search"
-          />
-          {busca.length > 0 && (
-            <TouchableOpacity onPress={() => setBusca('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={s.searchClear}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+      <View style={s.addRow}>
+        <TouchableOpacity
+          style={s.addBtn}
+          activeOpacity={0.75}
+          onPress={() => navigation.navigate('NovoProfissional')}
+        >
+          <Text style={s.addBtnText}>+ Novo profissional</Text>
+        </TouchableOpacity>
       </View>
 
       {filtrados.length === 0 ? (
@@ -210,7 +243,13 @@ export function MedicosLista() {
             />
           }
         >
-          {filtrados.map(prof => <ProfCard key={prof.id} prof={prof} />)}
+          {filtrados.map(prof => (
+            <ProfCard
+              key={prof.id}
+              prof={prof}
+              onView={() => navigation.navigate('ProfissionalPerfil', { id: prof.id })}
+            />
+          ))}
         </ScrollView>
       )}
     </View>
@@ -220,11 +259,12 @@ export function MedicosLista() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root:       { flex: 1, backgroundColor: '#F1F5F9' },
-  header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  header:     { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
   title:      { fontSize: 22, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
   subtitle:   { fontSize: 12, color: '#64748B', marginTop: 2 },
-  addBtn:     { backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14 },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  addRow:     { paddingHorizontal: 16, paddingTop: 12 },
+  addBtn:     { backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 14, alignItems: 'center' },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   searchWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
   searchBar:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: '#E2E8F0', height: 48 },
@@ -234,19 +274,18 @@ const s = StyleSheet.create({
 
   list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 10 },
 
-  card:    { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3 },
-  cardRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  cardBody:{ flex: 1 },
-  nome:    { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-  funcao:  { fontSize: 13, color: '#64748B', marginTop: 1 },
-  schedule:{ fontSize: 11, color: '#94A3B8', marginTop: 3 },
+  card:     { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3 },
+  cardRow:  { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  cardBody: { flex: 1, minWidth: 0 },
+  nome:     { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  funcao:   { fontSize: 12, color: '#2563EB', fontWeight: '600', marginTop: 1 },
+  telefone: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  schedule: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  editBtn:  { padding: 4 },
 
-  badge:    { backgroundColor: '#D1FAE5', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText:{ fontSize: 11, fontWeight: '700', color: '#065F46' },
-
-  avatarImg:      { width: 48, height: 48, borderRadius: 24 },
-  avatarCircle:   { width: 48, height: 48, borderRadius: 24, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
+  avatarImg:      { width: 58, height: 58, borderRadius: 29 },
+  avatarCircle:   { width: 58, height: 58, borderRadius: 29, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontSize: 18, fontWeight: '700', color: '#2563EB' },
 
   stateWrap:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingVertical: 40 },
   stateIcon:    { fontSize: 48, marginBottom: 12 },

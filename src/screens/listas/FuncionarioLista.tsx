@@ -11,7 +11,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Eye } from 'lucide-react-native';
 import { api, SessionExpiredError, STORAGE, getBaseUrl } from '../../services/httpClient';
+import { AppStackParams } from '../../navigation/AppNavigator';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FuncionarioAPI {
@@ -77,31 +81,45 @@ function AuthAvatar({ name, uri }: { name: string; uri: string | null }) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
-function FuncCard({ func }: { func: FuncionarioAPI }) {
+function FuncCard({ func, onView }: { func: FuncionarioAPI; onView: () => void }) {
   return (
     <View style={s.card}>
       <View style={s.cardRow}>
         <AuthAvatar name={func.nome} uri={func.foto} />
         <View style={s.cardBody}>
-          <Text style={s.nome}>{func.nome}</Text>
-          <Text style={s.email}>{func.email}</Text>
-          {func.telefone && <Text style={s.telefone}>📞 {func.telefone}</Text>}
+          <Text style={s.nome} numberOfLines={1}>{func.nome}</Text>
+          <Text style={s.funcao} numberOfLines={1}>{func.funcao}</Text>
+          {func.telefone && (
+            <Text style={s.telefone}>{func.telefone}</Text>
+          )}
         </View>
-        <View style={s.badge}>
-          <Text style={s.badgeText}>{func.funcao}</Text>
-        </View>
+        <TouchableOpacity style={s.editBtn} onPress={onView} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Eye size={16} color="#94A3B8" />
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+interface FuncionarioListaProps {
+  buscaExterna?:  string;
+  onBuscaChange?: (v: string) => void;
+  onCountChange?: (n: number) => void;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function FuncionarioLista() {
+export function FuncionarioLista({ buscaExterna, onBuscaChange, onCountChange }: FuncionarioListaProps = {}) {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParams>>();
   const [dados, setDados]           = useState<FuncionarioAPI[]>([]);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro]             = useState<string | null>(null);
-  const [busca, setBusca]           = useState('');
+  const [buscaInterna, setBuscaInterna] = useState('');
+
+  const isControlled = buscaExterna !== undefined;
+  const busca        = isControlled ? buscaExterna : buscaInterna;
+  const setBusca     = isControlled ? (onBuscaChange ?? (() => {})) : setBuscaInterna;
 
   const carregar = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -121,7 +139,12 @@ export function FuncionarioLista() {
     }
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
+
+  useEffect(() => {
+    onCountChange?.(dados.length);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados.length]);
 
   const filtrados = dados.filter(f =>
     f.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -151,33 +174,41 @@ export function FuncionarioLista() {
 
   return (
     <View style={s.root}>
-      <View style={s.header}>
-        <View>
-          <Text style={s.title}>Equipe</Text>
-          <Text style={s.subtitle}>{dados.length} funcionário{dados.length !== 1 ? 's' : ''}</Text>
-        </View>
-        <TouchableOpacity style={s.addBtn} activeOpacity={0.75}>
-          <Text style={s.addBtnText}>+ Novo</Text>
-        </TouchableOpacity>
-      </View>
+      {!isControlled && (
+        <>
+          <View style={s.header}>
+            <Text style={s.title}>Equipe</Text>
+            <Text style={s.subtitle}>{dados.length} funcionário{dados.length !== 1 ? 's' : ''}</Text>
+          </View>
+          <View style={s.searchWrap}>
+            <View style={s.searchBar}>
+              <Text style={s.searchIcon}>🔍</Text>
+              <TextInput
+                style={s.searchInput}
+                value={busca}
+                onChangeText={setBusca}
+                placeholder="Buscar por nome ou função..."
+                placeholderTextColor="#94A3B8"
+                returnKeyType="search"
+              />
+              {busca.length > 0 && (
+                <TouchableOpacity onPress={() => setBusca('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.searchClear}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </>
+      )}
 
-      <View style={s.searchWrap}>
-        <View style={s.searchBar}>
-          <Text style={s.searchIcon}>🔍</Text>
-          <TextInput
-            style={s.searchInput}
-            value={busca}
-            onChangeText={setBusca}
-            placeholder="Buscar por nome ou função..."
-            placeholderTextColor="#94A3B8"
-            returnKeyType="search"
-          />
-          {busca.length > 0 && (
-            <TouchableOpacity onPress={() => setBusca('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={s.searchClear}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+      <View style={s.addRow}>
+        <TouchableOpacity
+          style={s.addBtn}
+          activeOpacity={0.75}
+          onPress={() => navigation.navigate('NovoFuncionario')}
+        >
+          <Text style={s.addBtnText}>+ Novo funcionário</Text>
+        </TouchableOpacity>
       </View>
 
       {filtrados.length === 0 ? (
@@ -203,7 +234,13 @@ export function FuncionarioLista() {
             />
           }
         >
-          {filtrados.map(func => <FuncCard key={func.id} func={func} />)}
+          {filtrados.map(func => (
+            <FuncCard
+              key={func.id}
+              func={func}
+              onView={() => navigation.navigate('FuncionarioPerfil', { id: func.id })}
+            />
+          ))}
         </ScrollView>
       )}
     </View>
@@ -213,11 +250,12 @@ export function FuncionarioLista() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root:       { flex: 1, backgroundColor: '#F1F5F9' },
-  header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  header:     { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
   title:      { fontSize: 22, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
   subtitle:   { fontSize: 12, color: '#64748B', marginTop: 2 },
-  addBtn:     { backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14 },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  addRow:     { paddingHorizontal: 16, paddingTop: 12 },
+  addBtn:     { backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 14, alignItems: 'center' },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   searchWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
   searchBar:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: '#E2E8F0', height: 48 },
@@ -227,19 +265,17 @@ const s = StyleSheet.create({
 
   list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24, gap: 10 },
 
-  card:    { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3 },
-  cardRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  cardBody:{ flex: 1 },
-  nome:    { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-  email:   { fontSize: 12, color: '#64748B', marginTop: 1 },
-  telefone:{ fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  card:     { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3 },
+  cardRow:  { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  cardBody: { flex: 1, minWidth: 0 },
+  nome:     { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  funcao:   { fontSize: 12, color: '#2563EB', fontWeight: '600', marginTop: 1 },
+  telefone: { fontSize: 11, color: '#64748B', marginTop: 3 },
+  editBtn:  { padding: 4 },
 
-  badge:    { backgroundColor: '#DBEAFE', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'center' },
-  badgeText:{ fontSize: 11, fontWeight: '700', color: '#1D4ED8' },
-
-  avatarImg:      { width: 48, height: 48, borderRadius: 24 },
-  avatarCircle:   { width: 48, height: 48, borderRadius: 24, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontSize: 16, fontWeight: '700', color: '#2563EB' },
+  avatarImg:      { width: 68, height: 68, borderRadius: 34 },
+  avatarCircle:   { width: 68, height: 68, borderRadius: 34, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontSize: 18, fontWeight: '700', color: '#2563EB' },
 
   stateWrap:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingVertical: 40 },
   stateIcon:    { fontSize: 48, marginBottom: 12 },

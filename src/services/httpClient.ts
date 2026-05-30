@@ -152,6 +152,33 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
 
+  patchMultipart: async <T>(path: string, formData: FormData): Promise<T> => {
+    const url = `${_baseUrl}${path}`;
+    const getHeaders = async (): Promise<Record<string, string>> => {
+      const [access, clinicaId] = await Promise.all([
+        AsyncStorage.getItem(STORAGE.ACCESS),
+        AsyncStorage.getItem(STORAGE.CLINICA),
+      ]);
+      const h: Record<string, string> = {};
+      if (access)    h['Authorization'] = `Bearer ${access}`;
+      if (clinicaId) h['X-Clinica-ID']  = clinicaId;
+      return h;
+    };
+    const execute = async () =>
+      fetch(url, { method: 'PATCH', headers: await getHeaders(), body: formData });
+    let res = await execute();
+    if (res.status === 401 && !path.includes('auth/')) {
+      try { await refreshOnce(); res = await execute(); }
+      catch { throw new SessionExpiredError(); }
+    }
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, errBody);
+    }
+    if (res.status === 204) return undefined as T;
+    return res.json() as Promise<T>;
+  },
+
   delete: <T>(path: string) =>
     request<T>(path, { method: 'DELETE' }),
 };

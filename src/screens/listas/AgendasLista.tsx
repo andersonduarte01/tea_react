@@ -4,71 +4,76 @@ import {
   View,
   Text,
   Image,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { CalendarPlus, Eye } from 'lucide-react-native';
 import { api, SessionExpiredError, STORAGE, getBaseUrl } from '../../services/httpClient';
+import { AppStackParams } from '../../navigation/AppNavigator';
+
+type Nav = NativeStackNavigationProp<AppStackParams>;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DiasTrabalho {
-  segunda: boolean;
-  terca:   boolean;
-  quarta:  boolean;
-  quinta:  boolean;
-  sexta:   boolean;
-  sabado:  boolean;
-  domingo: boolean;
+  segunda: boolean; terca: boolean; quarta: boolean;
+  quinta:  boolean; sexta: boolean; sabado: boolean; domingo: boolean;
 }
 
 interface ProfAgendaItem {
-  id:             number;
-  nome:           string;
-  funcao:         string;
-  foto:           string | null;
-  hora_inicio:    string;
-  hora_fim:       string;
-  duracao_sessao: number;
-  intervalo:      number;
-  dias_trabalho:  DiasTrabalho | null;
+  id:              number;  // agenda config ID
+  profissional_id: number;  // profissional ID (usado para navegação e cross-reference)
+  nome:            string;
+  funcao:          string;
+  foto:            string | null;
+  hora_inicio:     string;
+  hora_fim:        string;
+  duracao_sessao:  number;
+  intervalo:       number;
+  dias_trabalho:   DiasTrabalho | null;
+  atende_feriados_nacionais?: boolean | null;
+  atende_feriados_locais?:    boolean | null;
 }
 
-interface Feriado {
-  id:        number;
-  data:      string;
-  descricao: string;
+interface ProfSemAgenda {
+  id:       number;
+  nome:     string;
+  funcao:   string;
+  foto_url: string | null;
 }
 
-interface Falta {
-  id:     number;
-  data:   string;
-  motivo: string | null;
-}
-
-interface ProfAgendaDetalhe extends ProfAgendaItem {
-  profissional_id:           number;
-  hora_almoco_inicio:        string | null;
-  hora_almoco_fim:           string | null;
-  atende_feriados_nacionais: boolean;
-  atende_feriados_locais:    boolean;
-  feriados_locais:           Feriado[];
-  faltas:                    Falta[];
-}
-
-type ApiResponse = ProfAgendaItem[] | { results: ProfAgendaItem[] };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DIAS: { key: keyof DiasTrabalho; label: string }[] = [
-  { key: 'segunda', label: 'Seg' },
-  { key: 'terca',   label: 'Ter' },
-  { key: 'quarta',  label: 'Qua' },
-  { key: 'quinta',  label: 'Qui' },
-  { key: 'sexta',   label: 'Sex' },
-  { key: 'sabado',  label: 'Sáb' },
+  { key: 'segunda', label: 'Seg' }, { key: 'terca',   label: 'Ter' },
+  { key: 'quarta',  label: 'Qua' }, { key: 'quinta',  label: 'Qui' },
+  { key: 'sexta',   label: 'Sex' }, { key: 'sabado',  label: 'Sáb' },
   { key: 'domingo', label: 'Dom' },
 ];
+
+// ─── Paginação ────────────────────────────────────────────────────────────────
+// Busca todas as páginas de um endpoint paginado até next === null.
+// Funciona também com endpoints que retornam lista simples (sem paginação).
+interface PagedResponse<T> { results: T[]; next: string | null }
+
+async function fetchAllPages<T>(path: string): Promise<T[]> {
+  const all: T[] = [];
+  let page = 1;
+  while (true) {
+    const sep  = path.includes('?') ? '&' : '?';
+    const data = await api.get<T[] | PagedResponse<T>>(`${path}${sep}page=${page}&page_size=100`);
+    if (Array.isArray(data)) { all.push(...data); break; }
+    all.push(...data.results);
+    if (!data.next) break;
+    page++;
+  }
+  return all;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getInitials(name: string): string {
@@ -80,13 +85,7 @@ function resolveUrl(url: string | null | undefined): string | null {
   const u = url.trim();
   if (!u) return null;
   if (u.startsWith('http://') || u.startsWith('https://')) return u;
-  const base = getBaseUrl().replace(/\/$/, '');
-  return `${base}${u.startsWith('/') ? u : `/${u}`}`;
-}
-
-function formatarData(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
+  return `${getBaseUrl().replace(/\/$/, '')}${u.startsWith('/') ? u : `/${u}`}`;
 }
 
 // ─── AuthAvatar ───────────────────────────────────────────────────────────────
@@ -116,9 +115,7 @@ function AuthAvatar({ name, uri }: { name: string; uri: string | null }) {
     return () => { cancelled = true; };
   }, [safeUri]);
 
-  if (dataUri) {
-    return <Image source={{ uri: dataUri }} style={s.avatarImg} />;
-  }
+  if (dataUri) return <Image source={{ uri: dataUri }} style={s.avatarImg} />;
   return (
     <View style={s.avatarCircle}>
       <Text style={s.avatarInitials}>{getInitials(name)}</Text>
@@ -126,28 +123,12 @@ function AuthAvatar({ name, uri }: { name: string; uri: string | null }) {
   );
 }
 
-// ─── Expandable Card ──────────────────────────────────────────────────────────
-function ProfCard({ prof }: { prof: ProfAgendaItem }) {
-  const [expandido, setExpandido]           = useState(false);
-  const [detalhe, setDetalhe]               = useState<ProfAgendaDetalhe | null>(null);
-  const [loadingDetalhe, setLoadingDetalhe] = useState(false);
-
-  const abrirDetalhe = useCallback(async () => {
-    if (detalhe) { setExpandido(v => !v); return; }
-    setExpandido(true);
-    setLoadingDetalhe(true);
-    try {
-      const data = await api.get<ProfAgendaDetalhe>(`/api/v1/agenda/profissionais/${prof.id}/`);
-      setDetalhe(data);
-    } catch {}
-    finally { setLoadingDetalhe(false); }
-  }, [detalhe, prof.id]);
-
+// ─── Card com agenda ──────────────────────────────────────────────────────────
+function CardComAgenda({ prof, onEditar }: { prof: ProfAgendaItem; onEditar: () => void }) {
   const dias = prof.dias_trabalho;
-
   return (
     <View style={s.card}>
-      <TouchableOpacity onPress={abrirDetalhe} activeOpacity={0.75} style={s.cardHeader}>
+      <View style={s.cardHeader}>
         <AuthAvatar name={prof.nome} uri={prof.foto} />
         <View style={s.cardBody}>
           <Text style={s.nome}>{prof.nome}</Text>
@@ -160,91 +141,93 @@ function ProfCard({ prof }: { prof: ProfAgendaItem }) {
             <View style={s.diasRow}>
               {DIAS.map(d => (
                 <View key={d.key} style={[s.diaChip, dias[d.key] && s.diaChipOn]}>
-                  <Text style={[s.diaChipText, dias[d.key] && s.diaChipTextOn]}>
-                    {d.label}
-                  </Text>
+                  <Text style={[s.diaChipText, dias[d.key] && s.diaChipTextOn]}>{d.label}</Text>
                 </View>
               ))}
             </View>
           )}
-        </View>
-        <Text style={s.expandIcon}>{expandido ? '▲' : '▼'}</Text>
-      </TouchableOpacity>
-
-      {expandido && (
-        <View style={s.detalheWrap}>
-          <View style={s.divider} />
-          {loadingDetalhe ? (
-            <ActivityIndicator size="small" color="#2563EB" style={s.detalheLoader} />
-          ) : detalhe ? (
-            <View style={s.detalhePad}>
-              {detalhe.hora_almoco_inicio && (
-                <View style={s.detalheRow}>
-                  <Text style={s.detalheLabel}>🍽 Almoço</Text>
-                  <Text style={s.detalheValor}>
-                    {detalhe.hora_almoco_inicio.slice(0, 5)} – {detalhe.hora_almoco_fim?.slice(0, 5)}
-                  </Text>
+          {(prof.atende_feriados_nacionais === true || prof.atende_feriados_locais === true) && (
+            <View style={s.feriadosRow}>
+              {prof.atende_feriados_nacionais === true && (
+                <View style={[s.feriadoChip, s.feriadoChipSim]}>
+                  <Text style={[s.feriadoText, s.feriadoTextSim]}>✓ Fer. Nacionais</Text>
                 </View>
               )}
-              <View style={s.detalheRow}>
-                <Text style={s.detalheLabel}>🗓 Feriados nacionais</Text>
-                <Text style={s.detalheValor}>
-                  {detalhe.atende_feriados_nacionais ? 'Atende' : 'Não atende'}
-                </Text>
-              </View>
-
-              {detalhe.feriados_locais.length > 0 && (
-                <View style={s.detalheBloco}>
-                  <Text style={s.detalheBlocoTitle}>
-                    Feriados locais ({detalhe.feriados_locais.length})
-                  </Text>
-                  {detalhe.feriados_locais.map(f => (
-                    <Text key={f.id} style={s.detalheBlocoItem}>
-                      • {formatarData(f.data)}  –  {f.descricao}
-                    </Text>
-                  ))}
+              {prof.atende_feriados_locais === true && (
+                <View style={[s.feriadoChip, s.feriadoChipSim]}>
+                  <Text style={[s.feriadoText, s.feriadoTextSim]}>✓ Fer. Locais</Text>
                 </View>
-              )}
-
-              {detalhe.faltas.length > 0 && (
-                <View style={s.detalheBloco}>
-                  <Text style={s.detalheBlocoTitleDanger}>
-                    Faltas agendadas ({detalhe.faltas.length})
-                  </Text>
-                  {detalhe.faltas.map(f => (
-                    <Text key={f.id} style={s.detalheBlocoItem}>
-                      • {formatarData(f.data)}{f.motivo ? `  –  ${f.motivo}` : ''}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
-              {detalhe.feriados_locais.length === 0 && detalhe.faltas.length === 0 && (
-                <Text style={s.detalheVazio}>Sem feriados locais ou faltas futuras.</Text>
               )}
             </View>
-          ) : (
-            <Text style={s.detalheVazio}>Não foi possível carregar o detalhe.</Text>
           )}
         </View>
-      )}
+        <TouchableOpacity onPress={onEditar} style={s.eyeBtn} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Eye size={16} color="#94A3B8" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Card sem agenda ──────────────────────────────────────────────────────────
+function CardSemAgenda({ prof, onCriar }: { prof: ProfSemAgenda; onCriar: () => void }) {
+  return (
+    <View style={s.card}>
+      <View style={s.cardHeader}>
+        <AuthAvatar name={prof.nome} uri={prof.foto_url} />
+        <View style={s.cardBody}>
+          <Text style={s.nome}>{prof.nome}</Text>
+          <Text style={s.funcao}>{prof.funcao}</Text>
+          <View style={s.semAgendaBadge}>
+            <Text style={s.semAgendaText}>Sem agenda configurada</Text>
+          </View>
+        </View>
+      </View>
+      <View style={s.divider} />
+      <TouchableOpacity style={s.cardActionCreate} onPress={onCriar} activeOpacity={0.75}>
+        <CalendarPlus size={14} color="#fff" />
+        <Text style={s.cardActionCreateText}>Criar agenda</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export function AgendasLista() {
-  const [dados, setDados]           = useState<ProfAgendaItem[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [erro, setErro]             = useState<string | null>(null);
+export function AgendasLista({ onCountChange, buscaExterna, onBuscaChange }: {
+  onCountChange?:  (com: number, sem: number) => void;
+  buscaExterna?:   string;
+  onBuscaChange?:  (v: string) => void;
+}) {
+  const navigation = useNavigation<Nav>();
+
+  const [comAgenda,   setComAgenda]   = useState<ProfAgendaItem[]>([]);
+  const [semAgenda,   setSemAgenda]   = useState<ProfSemAgenda[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [erro,        setErro]        = useState<string | null>(null);
+  const [buscaInterna, setBuscaInterna] = useState('');
+  const [aba,         setAba]         = useState<'com' | 'sem'>('com');
+
+  const isControlled = buscaExterna !== undefined;
+  const busca        = isControlled ? buscaExterna : buscaInterna;
+  const setBusca     = isControlled ? (onBuscaChange ?? (() => {})) : setBuscaInterna;
 
   const carregar = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
     setErro(null);
     try {
-      const json = await api.get<ApiResponse>('/api/v1/agenda/profissionais/');
-      setDados(Array.isArray(json) ? json : (json.results ?? []));
+      const [listaAgendas, listaTodos] = await Promise.all([
+        fetchAllPages<ProfAgendaItem>('/api/v1/agenda/profissionais/'),
+        api.get<ProfSemAgenda[] | PagedResponse<ProfSemAgenda>>('/api/v1/profissional/').then(
+          r => Array.isArray(r) ? r : (r.results ?? [])
+        ),
+      ]);
+
+      const idsComAgenda = new Set(listaAgendas.map(a => Number(a.profissional_id)));
+      const semLista = listaTodos.filter(p => !idsComAgenda.has(Number(p.id)));
+      setComAgenda(listaAgendas);
+      setSemAgenda(semLista);
+      onCountChange?.(listaAgendas.length, semLista.length);
     } catch (err: unknown) {
       if (err instanceof SessionExpiredError) {
         setErro('Sessão expirada. Faça login novamente.');
@@ -255,9 +238,15 @@ export function AgendasLista() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [onCountChange]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
+
+  const listaAtiva = aba === 'com' ? comAgenda : semAgenda;
+  const filtrados  = listaAtiva.filter(p =>
+    p.nome.toLowerCase().includes(busca.toLowerCase()) ||
+    p.funcao.toLowerCase().includes(busca.toLowerCase()),
+  );
 
   if (loading) {
     return (
@@ -282,18 +271,81 @@ export function AgendasLista() {
 
   return (
     <View style={s.root}>
-      <View style={s.header}>
-        <Text style={s.title}>Agendas</Text>
-        <Text style={s.subtitle}>
-          {dados.length} profissional{dados.length !== 1 ? 'is' : ''} com agenda ativa
-        </Text>
+      {/* Tabs */}
+      <View style={s.tabsWrap}>
+        <TouchableOpacity
+          style={[s.tab, aba === 'com' && s.tabActive]}
+          onPress={() => setAba('com')}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.tabText, aba === 'com' && s.tabTextActive]}>
+            Com agenda
+          </Text>
+          <View style={[s.tabBadge, aba === 'com' && s.tabBadgeActive]}>
+            <Text style={[s.tabBadgeText, aba === 'com' && s.tabBadgeTextActive]}>
+              {comAgenda.length}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[s.tab, aba === 'sem' && s.tabActive]}
+          onPress={() => setAba('sem')}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.tabText, aba === 'sem' && s.tabTextActive]}>
+            Sem agenda
+          </Text>
+          {semAgenda.length > 0 && (
+            <View style={[s.tabBadge, s.tabBadgeAlert, aba === 'sem' && s.tabBadgeActive]}>
+              <Text style={[s.tabBadgeText, aba === 'sem' && s.tabBadgeTextActive]}>
+                {semAgenda.length}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {dados.length === 0 ? (
+      {/* Busca interna — apenas no modo standalone */}
+      {!isControlled && (
+        <View style={s.searchWrap}>
+          <View style={s.searchBar}>
+            <Text style={s.searchIcon}>🔍</Text>
+            <TextInput
+              style={s.searchInput}
+              value={busca}
+              onChangeText={setBusca}
+              placeholder="Buscar por nome ou função..."
+              placeholderTextColor="#94A3B8"
+              returnKeyType="search"
+            />
+            {busca.length > 0 && (
+              <TouchableOpacity onPress={() => setBusca('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={s.searchClear}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Lista */}
+      {filtrados.length === 0 ? (
         <View style={s.stateWrap}>
-          <Text style={s.stateIcon}>📅</Text>
-          <Text style={s.emptyTitle}>Nenhuma agenda ativa</Text>
-          <Text style={s.emptySubtitle}>Nenhum profissional com agenda configurada na clínica</Text>
+          <Text style={s.stateIcon}>{aba === 'com' ? '📅' : '➕'}</Text>
+          <Text style={s.emptyTitle}>
+            {busca
+              ? 'Nenhum resultado'
+              : aba === 'com'
+                ? 'Nenhuma agenda configurada'
+                : 'Todos os profissionais têm agenda'}
+          </Text>
+          <Text style={s.emptySubtitle}>
+            {busca
+              ? `Sem resultados para "${busca}"`
+              : aba === 'com'
+                ? 'Nenhum profissional com agenda ativa'
+                : 'Todos já possuem configuração de agenda'}
+          </Text>
         </View>
       ) : (
         <ScrollView
@@ -308,8 +360,22 @@ export function AgendasLista() {
             />
           }
         >
-          <Text style={s.dica}>Toque em um profissional para ver detalhes da agenda.</Text>
-          {dados.map(prof => <ProfCard key={prof.id} prof={prof} />)}
+          {aba === 'com'
+            ? (filtrados as ProfAgendaItem[]).map(prof => (
+                <CardComAgenda
+                  key={prof.id}
+                  prof={prof}
+                  onEditar={() => navigation.navigate('EditarAgenda', { profissionalId: prof.profissional_id, agendaId: prof.id, nome: prof.nome })}
+                />
+              ))
+            : (filtrados as ProfSemAgenda[]).map(prof => (
+                <CardSemAgenda
+                  key={prof.id}
+                  prof={prof}
+                  onCriar={() => navigation.navigate('NovaAgenda', { profissionalId: prof.id, nome: prof.nome })}
+                />
+              ))
+          }
         </ScrollView>
       )}
     </View>
@@ -318,12 +384,26 @@ export function AgendasLista() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root:     { flex: 1, backgroundColor: '#F1F5F9' },
-  header:   { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  title:    { fontSize: 22, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
-  subtitle: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  dica:     { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginBottom: 8 },
-  list:     { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, gap: 10 },
+  root: { flex: 1, backgroundColor: '#F1F5F9' },
+
+  tabsWrap: { flexDirection: 'row', backgroundColor: '#FFFFFF', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  tab:      { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  tabActive:{ backgroundColor: '#2563EB' },
+  tabText:  { fontSize: 13, fontWeight: '600', color: '#64748B' },
+  tabTextActive: { color: '#fff' },
+  tabBadge: { backgroundColor: '#E2E8F0', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  tabBadgeAlert: { backgroundColor: '#FEE2E2' },
+  tabBadgeActive:{ backgroundColor: 'rgba(255,255,255,0.25)' },
+  tabBadgeText:  { fontSize: 11, fontWeight: '700', color: '#64748B' },
+  tabBadgeTextActive: { color: '#fff' },
+
+  searchWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  searchBar:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: '#E2E8F0', height: 48 },
+  searchIcon: { fontSize: 15, marginRight: 8 },
+  searchInput:{ flex: 1, fontSize: 14, color: '#0F172A' },
+  searchClear:{ fontSize: 14, color: '#94A3B8', paddingLeft: 8 },
+
+  list: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, gap: 10 },
 
   card:       { backgroundColor: '#FFFFFF', borderRadius: 16, shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3, overflow: 'hidden' },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', padding: 14, gap: 12 },
@@ -339,21 +419,21 @@ const s = StyleSheet.create({
   diaChipText:   { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
   diaChipTextOn: { color: '#fff' },
 
-  expandIcon: { fontSize: 11, color: '#94A3B8', marginTop: 4 },
+  eyeBtn: { padding: 4, marginLeft: 4, alignSelf: 'flex-start' },
 
-  divider:       { height: 1, backgroundColor: '#E2E8F0' },
-  detalheWrap:   {},
-  detalheLoader: { marginVertical: 12 },
-  detalhePad:    { padding: 14, paddingTop: 12 },
+  feriadosRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+  feriadoChip:    { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  feriadoChipSim: { backgroundColor: '#DCFCE7' },
+  feriadoText:    { fontSize: 10, fontWeight: '700' },
+  feriadoTextSim: { color: '#15803D' },
 
-  detalheRow:              { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  detalheLabel:            { fontSize: 13, color: '#64748B' },
-  detalheValor:            { fontSize: 13, fontWeight: '600', color: '#0F172A' },
-  detalheBloco:            { marginTop: 8, marginBottom: 4 },
-  detalheBlocoTitle:       { fontSize: 12, fontWeight: '700', color: '#2563EB', marginBottom: 4 },
-  detalheBlocoTitleDanger: { fontSize: 12, fontWeight: '700', color: '#EF4444', marginBottom: 4 },
-  detalheBlocoItem:        { fontSize: 12, color: '#64748B', marginBottom: 2 },
-  detalheVazio:            { fontSize: 12, color: '#94A3B8', textAlign: 'center', paddingVertical: 8 },
+  semAgendaBadge: { marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  semAgendaText:  { fontSize: 10, fontWeight: '600', color: '#92400E' },
+
+  cardActionCreate:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, backgroundColor: '#2563EB', margin: 10, borderRadius: 10 },
+  cardActionCreateText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+
+  divider: { height: 1, backgroundColor: '#E2E8F0' },
 
   avatarImg:      { width: 48, height: 48, borderRadius: 24 },
   avatarCircle:   { width: 48, height: 48, borderRadius: 24, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },

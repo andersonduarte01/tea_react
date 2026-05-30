@@ -39,7 +39,13 @@
       "Bash(Write-Output \"done\")",
       "Bash(./gradlew clean *)",
       "Bash(Remove-Item *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(p.dependencies['react-native-image-picker'] || 'NAO INSTALADO'\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); const libs=['expo-image-picker','react-native-image-picker','@react-native-camera-roll/camera-roll','expo-camera']; libs.forEach\\(l => console.log\\(l, p.dependencies[l] || p.devDependencies?.[l] || 'nao instalado'\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('expo:', p.dependencies['expo'] || 'nao'\\); console.log\\('rn:', p.dependencies['react-native']\\)\")",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\(p.dependencies['react-native-image-picker']\\);\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Anderson\\\\Desktop\\\\react\\\\TEA\" -File | Where-Object {$_.Name -match \"\\(app\\\\.json|babel\\\\.config|metro\\\\.config|tailwind\\\\.config|next\\\\.config\\)\" } | Select-Object -ExpandProperty FullName)",
+      "PowerShell(Remove-Item *)"
     ]
   }
 }

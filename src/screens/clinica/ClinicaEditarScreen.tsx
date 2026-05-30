@@ -11,15 +11,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInputProps,
+  Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ArrowLeft, Save } from 'lucide-react-native';
+import { ArrowLeft, Save, Camera } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { AppStackParams } from '../../navigation/AppNavigator';
 import { useClinica } from '../../hooks/useClinica';
 import { patchClinica } from '../../services/dashboardService';
-import { ApiError } from '../../services/httpClient';
+import { api, ApiError, SessionExpiredError, STORAGE, getBaseUrl } from '../../services/httpClient';
 
 type Nav = NativeStackNavigationProp<AppStackParams>;
 
@@ -39,6 +43,53 @@ const C = {
   redBg:     '#FFEBEE',
   disabled:  '#B0BEC5',
 } as const;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function resolveUri(url: string | null): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  if (u.startsWith('http')) return u;
+  const base = getBaseUrl().replace(/\/$/, '');
+  return `${base}${u.startsWith('/') ? u : `/${u}`}`;
+}
+
+// ─── ClinicaPhoto ─────────────────────────────────────────────────────────────
+function ClinicaPhoto({ fotoUrl, localUri, nome }: { fotoUrl: string | null; localUri: string | null; nome: string }) {
+  const [dataUri, setDataUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (localUri || !fotoUrl) { setDataUri(null); return; }
+    const resolved = resolveUri(fotoUrl);
+    if (!resolved) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem(STORAGE.ACCESS);
+        if (!token || cancelled) return;
+        const res = await fetch(resolved, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (!cancelled && typeof reader.result === 'string') setDataUri(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [fotoUrl, localUri]);
+
+  const uri = localUri ?? dataUri;
+  const initials = nome.split(' ').filter(w => w.length > 1).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+  return uri
+    ? <Image source={{ uri }} style={cp.photoImg} />
+    : (
+      <View style={cp.photoPlaceholder}>
+        <Text style={cp.photoInitials}>{initials || '🏥'}</Text>
+      </View>
+    );
+}
 
 // ─── Tipos de formulário ──────────────────────────────────────────────────────
 interface FormState {
@@ -123,9 +174,11 @@ export function ClinicaEditarScreen() {
   const navigation = useNavigation<Nav>();
   const { clinica, loading: loadingData } = useClinica();
 
-  const [form,        setForm]        = useState<FormState>(initialForm());
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [submitting,  setSubmitting]  = useState(false);
+  const [form,          setForm]          = useState<FormState>(initialForm());
+  const [fieldErrors,   setFieldErrors]   = useState<FieldErrors>({});
+  const [submitting,    setSubmitting]    = useState(false);
+  const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const populated = useRef(false);
 
   // Popula o form uma única vez quando os dados chegam
@@ -157,6 +210,33 @@ export function ClinicaEditarScreen() {
     });
   }, []);
 
+  const uploadFoto = async (uri: string) => {
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('foto', { uri, name: 'foto.jpg', type: 'image/jpeg' } as any);
+      await api.patchMultipart('/api/v1/clinica/foto/', formData);
+      setLocalPhotoUri(uri);
+      Alert.alert('Foto atualizada', 'A foto da clínica foi atualizada com sucesso.');
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        setFieldErrors({ global: 'Sessão expirada. Faça login novamente.' });
+      } else {
+        Alert.alert('Erro', 'Não foi possível atualizar a foto. Tente novamente.');
+      }
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handlePickPhoto = async () => {
+    const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8, maxWidth: 800, maxHeight: 800 });
+    if (result.didCancel || result.errorCode) return;
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+    uploadFoto(asset.uri);
+  };
+
   const handleSave = useCallback(async () => {
     const errors = validate(form);
     if (Object.keys(errors).length > 0) {
@@ -166,7 +246,6 @@ export function ClinicaEditarScreen() {
 
     setSubmitting(true);
     setFieldErrors({});
-
     try {
       await patchClinica({
         nome:     form.nome.trim(),
@@ -182,7 +261,11 @@ export function ClinicaEditarScreen() {
           cep:         form.cep.replace(/\D/g, '') || undefined,
         },
       });
-      navigation.navigate('AdminDashboard');
+      Alert.alert(
+        'Alterações salvas',
+        'Os dados da clínica foram atualizados com sucesso.',
+        [{ text: 'OK', onPress: () => navigation.navigate('ClinicaPerfil') }],
+      );
     } catch (err) {
       if (err instanceof ApiError && err.errors) {
         const mapped: FieldErrors = {};
@@ -245,6 +328,35 @@ export function ClinicaEditarScreen() {
               </View>
             )}
 
+            {/* Seção: Foto da clínica */}
+            <Text style={s.sectionTitle}>Foto da clínica</Text>
+            <View style={[s.card, cp.photoCard]}>
+              <TouchableOpacity
+                style={cp.photoBtnWrap}
+                activeOpacity={0.85}
+                onPress={handlePickPhoto}
+                disabled={uploadingPhoto}
+              >
+                <View style={cp.photoRing}>
+                  <ClinicaPhoto
+                    fotoUrl={clinica?.foto ?? null}
+                    localUri={localPhotoUri}
+                    nome={clinica?.nome ?? ''}
+                  />
+                  {uploadingPhoto ? (
+                    <View style={cp.photoOverlay}>
+                      <ActivityIndicator color="#fff" size="small" />
+                    </View>
+                  ) : (
+                    <View style={cp.cameraBadge}>
+                      <Camera size={14} color="#fff" />
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+              <Text style={cp.photoHint}>Toque para alterar a foto</Text>
+            </View>
+
             {/* Seção: Informações gerais */}
             <Text style={s.sectionTitle}>Informações gerais</Text>
             <View style={s.card}>
@@ -288,27 +400,23 @@ export function ClinicaEditarScreen() {
                 error={fieldErrors.logradouro}
               />
               <View style={s.fieldDivider} />
-              <View style={s.row}>
-                <FormField
-                  label="Número"
-                  value={form.numero}
-                  onChangeText={v => setField('numero', v)}
-                  placeholder="Nº"
-                  keyboardType="numeric"
-                  maxLength={10}
-                  error={fieldErrors.numero}
-                  flex={1}
-                />
-                <View style={s.rowGap} />
-                <FormField
-                  label="Complemento"
-                  value={form.complemento}
-                  onChangeText={v => setField('complemento', v)}
-                  placeholder="Apto, Sala..."
-                  error={fieldErrors.complemento}
-                  flex={2}
-                />
-              </View>
+              <FormField
+                label="Número"
+                value={form.numero}
+                onChangeText={v => setField('numero', v)}
+                placeholder="Nº"
+                keyboardType="numeric"
+                maxLength={10}
+                error={fieldErrors.numero}
+              />
+              <View style={s.fieldDivider} />
+              <FormField
+                label="Complemento"
+                value={form.complemento}
+                onChangeText={v => setField('complemento', v)}
+                placeholder="Apto, Sala..."
+                error={fieldErrors.complemento}
+              />
               <View style={s.fieldDivider} />
               <FormField
                 label="Bairro"
@@ -318,27 +426,23 @@ export function ClinicaEditarScreen() {
                 error={fieldErrors.bairro}
               />
               <View style={s.fieldDivider} />
-              <View style={s.row}>
-                <FormField
-                  label="Cidade"
-                  value={form.cidade}
-                  onChangeText={v => setField('cidade', v)}
-                  placeholder="Cidade"
-                  error={fieldErrors.cidade}
-                  flex={3}
-                />
-                <View style={s.rowGap} />
-                <FormField
-                  label="UF"
-                  value={form.estado}
-                  onChangeText={v => setField('estado', v.toUpperCase())}
-                  placeholder="CE"
-                  autoCapitalize="characters"
-                  maxLength={2}
-                  error={fieldErrors.estado}
-                  flex={1}
-                />
-              </View>
+              <FormField
+                label="Cidade"
+                value={form.cidade}
+                onChangeText={v => setField('cidade', v)}
+                placeholder="Cidade"
+                error={fieldErrors.cidade}
+              />
+              <View style={s.fieldDivider} />
+              <FormField
+                label="UF"
+                value={form.estado}
+                onChangeText={v => setField('estado', v.toUpperCase())}
+                placeholder="CE"
+                autoCapitalize="characters"
+                maxLength={2}
+                error={fieldErrors.estado}
+              />
               <View style={s.fieldDivider} />
               <FormField
                 label="CEP"
@@ -351,30 +455,46 @@ export function ClinicaEditarScreen() {
               />
             </View>
 
-            {/* Botão salvar */}
-            <TouchableOpacity
-              style={[s.saveBtn, submitting && s.saveBtnDisabled]}
-              onPress={handleSave}
-              activeOpacity={0.85}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Save size={18} color="#fff" />
-                  <Text style={s.saveBtnText}>Salvar alterações</Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <View style={{ height: 40 }} />
+            <View style={{ height: 88 }} />
           </ScrollView>
         </KeyboardAvoidingView>
+      )}
+
+      {!loadingData && (
+        <View style={s.footer}>
+          <TouchableOpacity
+            style={[s.submitBtn, submitting && { opacity: 0.65 }]}
+            onPress={handleSave}
+            activeOpacity={0.85}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Save size={18} color="#fff" />
+                <Text style={s.submitText}>Salvar alterações</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       )}
     </SafeAreaView>
   );
 }
+
+// ─── Styles da foto da clínica ───────────────────────────────────────────────
+const cp = StyleSheet.create({
+  photoCard:        { alignItems: 'center', paddingVertical: 24, marginBottom: 20 },
+  photoBtnWrap:     { alignItems: 'center' },
+  photoRing:        { width: 104, height: 104, borderRadius: 52, borderWidth: 3, borderColor: C.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg },
+  photoImg:         { width: 96, height: 96, borderRadius: 48 },
+  photoPlaceholder: { width: 96, height: 96, borderRadius: 48, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  photoInitials:    { fontSize: 28, fontWeight: '800', color: C.primary },
+  photoOverlay:     { position: 'absolute', width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
+  cameraBadge:      { position: 'absolute', bottom: 2, right: 2, width: 28, height: 28, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2.5, borderColor: '#fff' },
+  photoHint:        { marginTop: 10, fontSize: 12, color: C.textMuted, fontWeight: '500' },
+});
 
 // ─── Styles do FormField ──────────────────────────────────────────────────────
 const sf = StyleSheet.create({
@@ -411,7 +531,7 @@ const s = StyleSheet.create({
   row:    { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, gap: 12 },
   rowGap: { width: 0 },
 
-  saveBtn:         { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 16, borderRadius: 14, marginBottom: 8, shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
-  saveBtnDisabled: { backgroundColor: C.disabled, shadowOpacity: 0, elevation: 0 },
-  saveBtnText:     { fontSize: 16, fontWeight: '700', color: '#fff' },
+  footer:     { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 32 : 16, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 16 },
+  submitBtn:  { backgroundColor: C.primary, borderRadius: 14, height: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
+  submitText: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: -0.2 },
 });

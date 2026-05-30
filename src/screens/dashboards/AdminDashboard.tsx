@@ -3,6 +3,7 @@ import {
   View,
   Text,
   Image,
+  TextInput,
   TouchableOpacity,
   StatusBar,
   StyleSheet,
@@ -14,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage         from '@react-native-async-storage/async-storage';
-import { Bell, LogOut, Stethoscope, UserPlus, Flag, CalendarPlus, AlertTriangle, LockKeyhole, Menu, Building2, User, KeyRound, HelpCircle, ChevronRight, ArrowLeftRight } from 'lucide-react-native';
+import { Bell, LogOut, Stethoscope, UserPlus, Flag, CalendarPlus, AlertTriangle, LockKeyhole, Menu, Building2, User, KeyRound, HelpCircle, ChevronRight, ArrowLeftRight, Briefcase, CalendarCheck, Search } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppStackParams } from '../../navigation/AppNavigator';
@@ -22,8 +23,7 @@ import { useAuth }          from '../../contexts/AuthContext';
 import { useDashboard }     from '../../hooks/useDashboard';
 import { useClinica }       from '../../hooks/useClinica';
 import {
-  CalendarIcon, UsersIcon, HomeIcon, ThreeDotsIcon,
-  ChartIcon, ChatIcon, SettingsIcon, PersonIcon,
+  CalendarIcon, UsersIcon, HomeIcon, ThreeDotsIcon, ChartIcon,
 } from '../../components/DashboardLayout';
 import { DashboardAdminData, AlertaAPI } from '../../types/dashboard';
 import { MedicosLista }     from '../listas/MedicosLista';
@@ -180,7 +180,7 @@ function ExitIcon() {
 }
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-function SidebarMenu({ translateX, onClose, clinicaFoto, clinicaNome, onLogout, showMudarClinica, onMudarClinica, onClinicaPerfil }: {
+function SidebarMenu({ translateX, onClose, clinicaFoto, clinicaNome, onLogout, showMudarClinica, onMudarClinica, onClinicaPerfil, onAdminPerfil, onAlterarSenha }: {
   translateX:       Animated.Value;
   onClose:          () => void;
   clinicaFoto:      string | null;
@@ -189,11 +189,13 @@ function SidebarMenu({ translateX, onClose, clinicaFoto, clinicaNome, onLogout, 
   showMudarClinica: boolean;
   onMudarClinica:   () => void;
   onClinicaPerfil:  () => void;
+  onAdminPerfil:    () => void;
+  onAlterarSenha:   () => void;
 }) {
   const SIDEBAR_ACTIONS: { icon: typeof Building2; label: string; onPress: () => void }[] = [
     { icon: Building2, label: 'Perfil da Clínica',        onPress: onClinicaPerfil },
-    { icon: User,      label: 'Perfil do Administrador',  onPress: () => {} },
-    { icon: KeyRound,  label: 'Atualizar Senha',          onPress: () => {} },
+    { icon: User,      label: 'Perfil do Administrador',  onPress: onAdminPerfil },
+    { icon: KeyRound,  label: 'Atualizar Senha',          onPress: onAlterarSenha },
   ];
 
   return (
@@ -251,8 +253,15 @@ function SidebarMenu({ translateX, onClose, clinicaFoto, clinicaNome, onLogout, 
 }
 
 // ─── 1. HEADER ────────────────────────────────────────────────────────────────
-function DashHeader({ name, alertCount, clinicaNome, onMenuPress }: {
-  name: string; alertCount: number; clinicaNome?: string; onMenuPress: () => void;
+function DashHeader({ name, alertCount, clinicaNome, onMenuPress, subtitle, showSearchIcon, searchActive, onSearchPress }: {
+  name:             string;
+  alertCount:       number;
+  clinicaNome?:     string;
+  onMenuPress:      () => void;
+  subtitle?:        string;
+  showSearchIcon?:  boolean;
+  searchActive?:    boolean;
+  onSearchPress?:   () => void;
 }) {
   const firstName = name.split(' ')[0];
   return (
@@ -264,24 +273,39 @@ function DashHeader({ name, alertCount, clinicaNome, onMenuPress }: {
 
         <View style={{ flex: 1 }}>
           <Text style={s.greetingClinica} numberOfLines={1}>{clinicaNome}</Text>
-          <Text style={s.greetingTitle}>{getGreeting()}, {firstName}!</Text>
+          <Text style={s.greetingTitle}>
+            {subtitle !== undefined ? subtitle : `${getGreeting()}, ${firstName}!`}
+          </Text>
         </View>
 
-        <BellIcon badge={alertCount} />
+        {/* Coluna direita: sino + lupa (empilhados verticalmente) */}
+        <View style={s.headerRight}>
+          <BellIcon badge={alertCount} />
+          {showSearchIcon && (
+            <TouchableOpacity
+              onPress={onSearchPress}
+              style={s.searchIconBtn}
+              hitSlop={{ top: 4, bottom: 8, left: 8, right: 4 }}
+              activeOpacity={0.7}
+            >
+              <Search size={18} color={searchActive ? '#fff' : 'rgba(255,255,255,0.65)'} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
 // ─── 2. MÉTRICAS FLUTUANTES ───────────────────────────────────────────────────
-function FloatingMetrics({ d, onAgendamentosPress, onMedicosPress }: {
-  d: DashboardAdminData; onAgendamentosPress: () => void; onMedicosPress: () => void;
+function FloatingMetrics({ d, onProfissionaisPress, onFuncionariosPress }: {
+  d: DashboardAdminData; onProfissionaisPress: () => void; onFuncionariosPress: () => void;
 }) {
   const items = [
-    { id: '4', icon: (c: string) => <ChartIcon    size={24} color={c} />, value: d.agendamentos_abertos, label: 'Aguardando', onPress: onAgendamentosPress },
-    { id: '1', icon: (c: string) => <CalendarIcon size={24} color={c} />, value: d.consultas_hoje,       label: 'Realizados',  onPress: undefined },
-    { id: '2', icon: (c: string) => <UsersIcon    size={24} color={c} />, value: d.pacientes_ativos,     label: 'Pacientes',   onPress: undefined },
-    { id: '3', icon: (c: string) => <Stethoscope  size={24} color={c} />, value: d.profissionais_total,  label: 'Médicos',     onPress: onMedicosPress },
+    { id: '1', icon: (c: string) => <Stethoscope   size={22} color={c} />, value: d.profissionais_total,      label: 'Profissionais', onPress: onProfissionaisPress },
+    { id: '2', icon: (c: string) => <Briefcase      size={22} color={c} />, value: d.funcionarios_presentes,   label: 'Funcionários',  onPress: onFuncionariosPress },
+    { id: '3', icon: (c: string) => <UsersIcon      size={22} color={c} />, value: d.pacientes_ativos,         label: 'Pacientes',     onPress: undefined },
+    { id: '4', icon: (c: string) => <CalendarCheck  size={22} color={c} />, value: d.total_atendimentos ?? 0,  label: 'Atendimentos',  onPress: undefined },
   ];
   return (
     <View style={s.floatingCard}>
@@ -315,16 +339,26 @@ function FloatingMetrics({ d, onAgendamentosPress, onMedicosPress }: {
 }
 
 // ─── 3. CARD AZUL — resumo crítico ────────────────────────────────────────────
-function SummaryCard({ d, onPress }: { d: DashboardAdminData; onPress: () => void }) {
+function SummaryCard({
+  d,
+  onAgendamentosPress,
+  onFaltasPress,
+}: {
+  d: DashboardAdminData;
+  onAgendamentosPress: () => void;
+  onFaltasPress: () => void;
+}) {
   const pendentes  = d.agendamentos_abertos;
   const realizados = d.consultas_hoje;
   const cancelados = d.agendamentos_cancelados ?? 0;
   const total      = pendentes + realizados + cancelados;
-  const equipeText = `${d.profissionais_total} médico${d.profissionais_total !== 1 ? 's' : ''} · ${d.funcionarios_presentes} funcionário${d.funcionarios_presentes !== 1 ? 's' : ''}`;
-
+  const funcionariosText = `${d.funcionarios_presentes} funcionário${d.funcionarios_presentes !== 1 ? 's' : ''}`;
+  const equipeText = `${d.profissionais_total} profission${d.profissionais_total !== 1 ? 'ais' : 'al'}`;
+  const temFaltas = d.faltas_hoje > 0;
   return (
-    <TouchableOpacity style={s.blueCard} onPress={onPress} activeOpacity={0.88}>
-      <View style={s.blueCardTop}>
+    <View style={s.blueCard}>
+      {/* Topo — navega para agendamentos do dia */}
+      <TouchableOpacity style={s.blueCardTop} onPress={onAgendamentosPress} activeOpacity={0.75}>
         <View style={s.blueCardIconCircle}>
           <CalendarIcon size={28} color="#fff" />
         </View>
@@ -332,52 +366,74 @@ function SummaryCard({ d, onPress }: { d: DashboardAdminData; onPress: () => voi
           <Text style={s.blueCardTopLabel}>RESUMO DO DIA</Text>
           <Text style={s.blueCardMain}>{total} Agendamentos</Text>
           <Text style={s.blueCardSub}>
-            {pendentes} aguard. · {realizados} realiz. - {cancelados} cancel.
+            {pendentes} aguard. · {realizados} realiz. · {cancelados} cancel.
           </Text>
         </View>
         <Text style={s.blueCardArrow}>›</Text>
-      </View>
+      </TouchableOpacity>
 
       <View style={s.blueCardDivider} />
 
-      <View style={s.blueCardBottom}>
-        <View style={s.blueCardPersonCircle}>
-          <UsersIcon size={18} color="rgba(255,255,255,0.9)" />
+      {/* Rodapé — navega para faltas apenas quando há faltas registradas */}
+      {temFaltas ? (
+        <TouchableOpacity style={s.blueCardBottom} onPress={onFaltasPress} activeOpacity={0.75}>
+          <View style={s.blueCardPersonCircle}>
+            <UsersIcon size={28} color="rgba(255,255,255,0.9)" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.blueCardPersonName}>Colaboradores</Text>
+            <Text style={s.blueCardPersonSub}>{equipeText}</Text>
+            <Text style={s.blueCardPersonSub}>{funcionariosText}</Text>
+          </View>
+          <View style={s.faltasBadgeRow}>
+            <View style={[s.statusBadge, { backgroundColor: C.amber }]}>
+              <Text style={s.statusText}>
+                {d.faltas_hoje} falta{d.faltas_hoje > 1 ? 's' : ''} hoje
+              </Text>
+            </View>
+            <Text style={s.blueCardArrowSm}>›</Text>
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <View style={s.blueCardBottom}>
+          <View style={s.blueCardPersonCircle}>
+            <UsersIcon size={28} color="rgba(255,255,255,0.9)" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.blueCardPersonName}>Colaboradores</Text>
+            <Text style={s.blueCardPersonSub}>{equipeText}</Text>
+          </View>
+          <View style={[s.statusBadge, { backgroundColor: C.green }]}>
+            <Text style={s.statusText}>✓ hoje</Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.blueCardPersonName}>Colaboradores</Text>
-          <Text style={s.blueCardPersonSub}>{equipeText}</Text>
-        </View>
-        <View style={[s.statusBadge, { backgroundColor: d.faltas_hoje > 0 ? C.amber : C.green }]}>
-          <Text style={s.statusText}>
-            {d.faltas_hoje > 0 ? `${d.faltas_hoje} falta${d.faltas_hoje > 1 ? 's' : ''} hoje` : '✓ hoje'}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
 // ─── 4. ACESSO RÁPIDO ─────────────────────────────────────────────────────────
 const QUICK_ACCESS = [
-  { id: '1', label: 'Novo',  sub: 'médico',       icon: (c: string) => <Stethoscope  size={24} color={c} /> },
-  { id: '2', label: 'Novo',  sub: 'colaborador',  icon: (c: string) => <UserPlus     size={24} color={c} /> },
+  { id: '1', label: 'Novo',  sub: 'profissional',       icon: (c: string) => <Stethoscope  size={24} color={c} /> },
+  { id: '2', label: 'Novo',  sub: 'funcionário',  icon: (c: string) => <UserPlus     size={24} color={c} /> },
   { id: '3', label: 'Novo',  sub: 'feriado',      icon: (c: string) => <Flag         size={24} color={c} /> },
-  { id: '4', label: 'Nova',  sub: 'agenda',       icon: (c: string) => <CalendarPlus size={24} color={c} /> },
+  { id: '4', label: 'Novo',  sub: 'formulário',   icon: (c: string) => <CalendarPlus size={24} color={c} /> },
 ];
 
-function QuickAccess() {
+function QuickAccess({ onNovoMedico, onNovoColaborador, onNovoFeriado }: { onNovoMedico: () => void; onNovoColaborador: () => void; onNovoFeriado: () => void }) {
+  const handlers: Record<string, (() => void) | undefined> = {
+    '1': onNovoMedico,
+    '2': onNovoColaborador,
+    '3': onNovoFeriado,
+  };
   return (
     <View style={s.quickCard}>
       <View style={s.quickCardHeader}>
         <Text style={s.sectionTitle}>Acesso rápido</Text>
-        <TouchableOpacity activeOpacity={0.7}>
-          <Text style={s.seeAll}>Ver todos  ›</Text>
-        </TouchableOpacity>
       </View>
       <View style={s.accessRow}>
         {QUICK_ACCESS.map(item => (
-          <TouchableOpacity key={item.id} style={s.accessItem} activeOpacity={0.7}>
+          <TouchableOpacity key={item.id} style={s.accessItem} activeOpacity={0.7} onPress={handlers[item.id]}>
             <View style={s.accessCircle}>{item.icon(C.primary)}</View>
             <Text style={s.accessLabel}>{item.label}</Text>
             <Text style={s.accessSub}>{item.sub}</Text>
@@ -432,7 +488,7 @@ function CadastrosRecentes({ d }: { d: DashboardAdminData }) {
         <Text style={s.sectionTitle}>Cadastros recentes</Text>
       </View>
       <View style={s.listCard}>
-        {d.cadastros_recentes.map((m, i) => (
+        {d.cadastros_recentes.slice(0, 6).map((m, i) => (
           <React.Fragment key={m.id}>
             <View style={s.teamRow}>
               <ProfAvatar uri={resolveUrl(m.foto_url)} nome={m.nome} />
@@ -446,7 +502,7 @@ function CadastrosRecentes({ d }: { d: DashboardAdminData }) {
                 </Text>
               )}
             </View>
-            {i < d.cadastros_recentes.length - 1 && <View style={s.divider} />}
+            {i < Math.min(d.cadastros_recentes.length, 6) - 1 && <View style={s.divider} />}
           </React.Fragment>
         ))}
       </View>
@@ -484,9 +540,9 @@ function ActivitySection({ d }: { d: DashboardAdminData }) {
         <Text style={s.sectionTitle}>Atividade recente</Text>
       </View>
       <View style={s.listCard}>
-        {d.atividade_recente.map((item, i) => {
+        {d.atividade_recente.slice(0, 6).map((item, i) => {
           const color = ACT_COLOR[item.status] ?? C.textMuted;
-          const last  = i === d.atividade_recente.length - 1;
+          const last  = i === Math.min(d.atividade_recente.length, 6) - 1;
           const label = getActivityLabel(item.tipo, item.descricao);
           return (
             <View key={item.id} style={s.actItem}>
@@ -512,9 +568,14 @@ function ActivitySection({ d }: { d: DashboardAdminData }) {
 }
 
 // ─── CONTEÚDO PRINCIPAL ───────────────────────────────────────────────────────
-function MainContent({ data, refreshing, onRefresh, onAgendamentosPress, onSummaryPress, onMedicosPress }: {
+function MainContent({
+  data, refreshing, onRefresh,
+  onSummaryPress, onFaltasPress, onMedicosPress, onFuncionariosPress,
+  onNovoMedicoPress, onNovoColaboradorPress, onNovoFeriadoPress,
+}: {
   data: DashboardAdminData; refreshing: boolean; onRefresh: () => void;
-  onAgendamentosPress: () => void; onSummaryPress: () => void; onMedicosPress: () => void;
+  onSummaryPress: () => void; onFaltasPress: () => void; onMedicosPress: () => void; onFuncionariosPress: () => void;
+  onNovoMedicoPress: () => void; onNovoColaboradorPress: () => void; onNovoFeriadoPress: () => void;
 }) {
   return (
     <ScrollView
@@ -526,9 +587,9 @@ function MainContent({ data, refreshing, onRefresh, onAgendamentosPress, onSumma
           colors={[C.primary]} tintColor={C.primary} />
       }
     >
-      <FloatingMetrics d={data} onAgendamentosPress={onAgendamentosPress} onMedicosPress={onMedicosPress} />
-      <SummaryCard d={data} onPress={onSummaryPress} />
-      <QuickAccess />
+      <FloatingMetrics d={data} onProfissionaisPress={onMedicosPress} onFuncionariosPress={onFuncionariosPress} />
+      <SummaryCard d={data} onAgendamentosPress={onSummaryPress} onFaltasPress={onFaltasPress} />
+      <QuickAccess onNovoMedico={onNovoMedicoPress} onNovoColaborador={onNovoColaboradorPress} onNovoFeriado={onNovoFeriadoPress} />
       <AlertsOrTipCard alertas={data.alertas} />
       <ActivitySection d={data} />
       <CadastrosRecentes d={data} />
@@ -578,17 +639,11 @@ type TabKey = 'home' | 'medicos' | 'agendas' | 'equipe' | 'mais';
 
 const TABS: { key: TabKey; label: string; icon: (active: boolean) => React.ReactNode }[] = [
   { key: 'home',    label: 'Início',  icon: a => <HomeIcon     color={a ? C.primary : C.textMuted} /> },
-  { key: 'medicos', label: 'Médicos', icon: a => <UsersIcon    size={22} color={a ? C.primary : C.textMuted} /> },
+  { key: 'medicos', label: 'Profissionais', icon: a => <UsersIcon    size={22} color={a ? C.primary : C.textMuted} /> },
   { key: 'agendas', label: 'Agendas', icon: a => <CalendarIcon size={22} color={a ? C.primary : C.textMuted} /> },
   { key: 'equipe',  label: 'Equipe',  icon: a => <UsersIcon    size={22} color={a ? C.primary : C.textMuted} /> },
   { key: 'mais',    label: 'Mais',    icon: _  => <ThreeDotsIcon /> },
 ];
-
-const SCREEN_MAP: Partial<Record<TabKey, React.ComponentType>> = {
-  medicos: MedicosLista,
-  agendas: AgendasLista,
-  equipe:  FuncionarioLista,
-};
 
 // ─── ADMIN DASHBOARD ──────────────────────────────────────────────────────────
 export function AdminDashboard() {
@@ -601,6 +656,16 @@ export function AdminDashboard() {
   const [maisOpen,     setMaisOpen]    = useState(false);
   const [sidebarOpen,  setSidebarOpen] = useState(false);
   const [refreshing,   setRefreshing]  = useState(false);
+  const [profCount,      setProfCount]      = useState(0);
+  const [funcCount,      setFuncCount]      = useState(0);
+  const [agendaComCount, setAgendaComCount] = useState(0);
+  const [agendaSemCount, setAgendaSemCount] = useState(0);
+  const [searchOpen,        setSearchOpen]        = useState(false);
+  const [searchOpenEquipe,  setSearchOpenEquipe]  = useState(false);
+  const [searchOpenAgendas, setSearchOpenAgendas] = useState(false);
+  const [buscaMedicos,      setBuscaMedicos]      = useState('');
+  const [buscaEquipe,       setBuscaEquipe]       = useState('');
+  const [buscaAgendas,      setBuscaAgendas]      = useState('');
   const sidebarX = useRef(new Animated.Value(-SIDEBAR_W)).current;
 
   const openSidebar = useCallback(() => {
@@ -623,8 +688,6 @@ export function AdminDashboard() {
     }
   }, [clinicaDetalhe?.foto, clinicaAtual?.id, clinicaAtual?.foto, atualizarFotoClinica]);
 
-  const ActiveScreen = SCREEN_MAP[activeTab];
-
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await refresh();
@@ -641,6 +704,16 @@ export function AdminDashboard() {
     navigation.navigate('ClinicaPerfil');
   }, [closeSidebar, navigation]);
 
+  const handleAdminPerfil = useCallback(() => {
+    closeSidebar();
+    navigation.navigate('AdminPerfil');
+  }, [closeSidebar, navigation]);
+
+  const handleAlterarSenha = useCallback(() => {
+    closeSidebar();
+    navigation.navigate('AlterarSenha');
+  }, [closeSidebar, navigation]);
+
   const handleAgendamentos = useCallback(() => {
     navigation.navigate('AgendamentosHoje');
   }, [navigation]);
@@ -649,36 +722,222 @@ export function AdminDashboard() {
     navigation.navigate('AgendamentosCompletos');
   }, [navigation]);
 
+  const handleRealizados = useCallback(() => {
+    navigation.navigate('AgendamentosCompletos', { initialFilter: 'realizado' });
+  }, [navigation]);
+
+  const handleNovoMedico = useCallback(() => {
+    navigation.navigate('NovoProfissional');
+  }, [navigation]);
+
+  const handleNovoColaborador = useCallback(() => {
+    navigation.navigate('NovoFuncionario');
+  }, [navigation]);
+
+  const handleFaltas = useCallback(() => {
+    navigation.navigate('FaltasHoje');
+  }, [navigation]);
+
+  const handleNovoFeriado = useCallback(() => {
+    navigation.navigate('NovoFeriado');
+  }, [navigation]);
+
+  const handleFeriados = useCallback(() => {
+    setMaisOpen(false);
+    navigation.navigate('Feriados');
+  }, [navigation]);
+
+  const switchTab = useCallback((key: TabKey) => {
+    setActiveTab(key);
+    setMaisOpen(false);
+    if (key !== 'medicos') {
+      setSearchOpen(false);
+      setBuscaMedicos('');
+    }
+    if (key !== 'equipe') {
+      setSearchOpenEquipe(false);
+      setBuscaEquipe('');
+    }
+    if (key !== 'agendas') {
+      setSearchOpenAgendas(false);
+      setBuscaAgendas('');
+    }
+  }, []);
+
   const handleTab = (key: TabKey) => {
     if (key === 'mais') setMaisOpen(p => !p);
-    else { setActiveTab(key); setMaisOpen(false); }
+    else switchTab(key);
   };
 
-  const renderBody = () => {
-    if (loading && !refreshing) return <LoadingContent />;
-    if (sessionExpired)         return <SessionExpiredContent onLogout={logout} />;
-    if (error)                  return <ErrorContent message={error} onRetry={refresh} />;
-    if (!data)                  return <LoadingContent />;
-    return <MainContent data={data} refreshing={refreshing} onRefresh={onRefresh} onAgendamentosPress={handleAgendamentos} onSummaryPress={handleSummary} onMedicosPress={() => setActiveTab('medicos')} />;
+  const handleToggleSearch = useCallback(() => {
+    setSearchOpen(v => {
+      if (v) setBuscaMedicos('');
+      return !v;
+    });
+  }, []);
+
+  const handleToggleSearchEquipe = useCallback(() => {
+    setSearchOpenEquipe(v => {
+      if (v) setBuscaEquipe('');
+      return !v;
+    });
+  }, []);
+
+  const handleToggleSearchAgendas = useCallback(() => {
+    setSearchOpenAgendas(v => {
+      if (v) setBuscaAgendas('');
+      return !v;
+    });
+  }, []);
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'medicos':
+        return (
+          <MedicosLista
+            buscaExterna={buscaMedicos}
+            onBuscaChange={setBuscaMedicos}
+            onCountChange={setProfCount}
+          />
+        );
+      case 'agendas': return (
+        <AgendasLista
+          buscaExterna={buscaAgendas}
+          onBuscaChange={setBuscaAgendas}
+          onCountChange={(com, sem) => { setAgendaComCount(com); setAgendaSemCount(sem); }}
+        />
+      );
+      case 'equipe':
+        return (
+          <FuncionarioLista
+            buscaExterna={buscaEquipe}
+            onBuscaChange={setBuscaEquipe}
+            onCountChange={setFuncCount}
+          />
+        );
+      default:
+        if (loading && !refreshing) return <LoadingContent />;
+        if (sessionExpired)         return <SessionExpiredContent onLogout={logout} />;
+        if (error)                  return <ErrorContent message={error} onRetry={refresh} />;
+        if (!data)                  return <LoadingContent />;
+        return (
+          <MainContent
+            data={data} refreshing={refreshing} onRefresh={onRefresh}
+            onSummaryPress={handleSummary} onFaltasPress={handleFaltas}
+            onMedicosPress={() => switchTab('medicos')}
+            onFuncionariosPress={() => switchTab('equipe')}
+            onNovoMedicoPress={handleNovoMedico}
+            onNovoColaboradorPress={handleNovoColaborador}
+            onNovoFeriadoPress={handleNovoFeriado}
+          />
+        );
+    }
   };
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.headerBg} />
 
-      {ActiveScreen ? (
-        <ActiveScreen />
-      ) : (
-        <>
-          <DashHeader
-            name={name}
-            alertCount={data?.alertas?.length ?? 0}
-            clinicaNome={clinicaNome}
-            onMenuPress={openSidebar}
+      <DashHeader
+        name={name}
+        alertCount={data?.alertas?.length ?? 0}
+        clinicaNome={clinicaNome}
+        onMenuPress={openSidebar}
+        subtitle={
+          activeTab === 'medicos'
+            ? `${profCount} profissional${profCount !== 1 ? 'is' : ''} cadastrado${profCount !== 1 ? 's' : ''}`
+            : activeTab === 'equipe'
+            ? `${funcCount} funcionário${funcCount !== 1 ? 's' : ''} cadastrado${funcCount !== 1 ? 's' : ''}`
+            : activeTab === 'agendas'
+            ? `${agendaComCount} com agenda · ${agendaSemCount} pendente${agendaSemCount !== 1 ? 's' : ''}`
+            : undefined
+        }
+        showSearchIcon={activeTab === 'medicos' || activeTab === 'equipe' || activeTab === 'agendas'}
+        searchActive={
+          activeTab === 'medicos'  ? searchOpen :
+          activeTab === 'equipe'   ? searchOpenEquipe :
+          activeTab === 'agendas'  ? searchOpenAgendas : false
+        }
+        onSearchPress={
+          activeTab === 'medicos'  ? handleToggleSearch :
+          activeTab === 'equipe'   ? handleToggleSearchEquipe :
+          handleToggleSearchAgendas
+        }
+      />
+
+      {/* Barra de busca flutuante — equipe */}
+      {activeTab === 'equipe' && searchOpenEquipe && (
+        <View style={s.searchFloat}>
+          <Search size={15} color="#94A3B8" />
+          <TextInput
+            style={s.searchFloatInput}
+            value={buscaEquipe}
+            onChangeText={setBuscaEquipe}
+            placeholder="Buscar por nome ou função..."
+            placeholderTextColor="#94A3B8"
+            autoFocus
+            returnKeyType="search"
           />
-          {renderBody()}
-        </>
+          {buscaEquipe.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setBuscaEquipe('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={s.searchFloatClear}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       )}
+
+      {/* Barra de busca flutuante — aparece abaixo do header ao clicar na lupa */}
+      {activeTab === 'medicos' && searchOpen && (
+        <View style={s.searchFloat}>
+          <Search size={15} color="#94A3B8" />
+          <TextInput
+            style={s.searchFloatInput}
+            value={buscaMedicos}
+            onChangeText={setBuscaMedicos}
+            placeholder="Buscar por nome ou função..."
+            placeholderTextColor="#94A3B8"
+            autoFocus
+            returnKeyType="search"
+          />
+          {buscaMedicos.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setBuscaMedicos('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={s.searchFloatClear}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Barra de busca flutuante — agendas */}
+      {activeTab === 'agendas' && searchOpenAgendas && (
+        <View style={s.searchFloat}>
+          <Search size={15} color="#94A3B8" />
+          <TextInput
+            style={s.searchFloatInput}
+            value={buscaAgendas}
+            onChangeText={setBuscaAgendas}
+            placeholder="Buscar por nome ou função..."
+            placeholderTextColor="#94A3B8"
+            autoFocus
+            returnKeyType="search"
+          />
+          {buscaAgendas.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setBuscaAgendas('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={s.searchFloatClear}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {renderContent()}
 
       {maisOpen && (
         <TouchableOpacity style={s.backdrop} onPress={() => setMaisOpen(false)} activeOpacity={1} />
@@ -686,6 +945,13 @@ export function AdminDashboard() {
 
       {maisOpen && (
         <View style={s.maisMenu}>
+          <TouchableOpacity style={s.maisMenuItem} onPress={handleFeriados} activeOpacity={0.7}>
+            <View style={[s.maisMenuIconWrap, { backgroundColor: '#EFF6FF' }]}>
+              <Flag size={20} color={C.primary} />
+            </View>
+            <Text style={[s.maisMenuLabel, { color: C.primary }]}>Feriados</Text>
+          </TouchableOpacity>
+          <View style={s.maisMenuDivider} />
           <TouchableOpacity style={s.maisMenuItem} activeOpacity={0.7}>
             <View style={[s.maisMenuIconWrap, { backgroundColor: '#EFF6FF' }]}>
               <HelpCircle size={20} color={C.primary} />
@@ -705,6 +971,8 @@ export function AdminDashboard() {
           showMudarClinica={temMultiplasClinicas}
           onMudarClinica={handleMudarClinica}
           onClinicaPerfil={handleClinicaPerfil}
+          onAdminPerfil={handleAdminPerfil}
+          onAlterarSenha={handleAlterarSenha}
         />
       )}
 
@@ -748,20 +1016,27 @@ const s = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
 
   // header
-  header:        { backgroundColor: C.headerBg, paddingHorizontal: 12, paddingTop: 16, paddingBottom: 32, borderBottomLeftRadius: 18, borderBottomRightRadius: 18 },
-  menuBtn:       { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
-  greetingRow:   { flexDirection: 'row', alignItems: 'flex-start' },
-  greetingClinica:{ fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 3 },
-  greetingTitle:  { fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.75)' },
+  header:          { backgroundColor: C.headerBg, paddingHorizontal: 12, paddingTop: 16, paddingBottom: 32, borderBottomLeftRadius: 18, borderBottomRightRadius: 18 },
+  menuBtn:         { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
+  greetingRow:     { flexDirection: 'row', alignItems: 'flex-start' },
+  greetingClinica: { fontSize: 18, fontWeight: '800', color: '#fff', marginBottom: 3 },
+  greetingTitle:   { fontSize: 12, fontWeight: '500', color: 'rgba(255,255,255,0.75)' },
+  headerRight:     { alignItems: 'center', gap: 8 },
+  searchIconBtn:   { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+
+  // floating search bar
+  searchFloat:      { marginHorizontal: 16, marginTop: -20, backgroundColor: '#fff', borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 10, height: 48, borderWidth: 1, borderColor: C.border, shadowColor: C.headerBg, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 8, zIndex: 10 },
+  searchFloatInput: { flex: 1, fontSize: 14, color: C.text },
+  searchFloatClear: { fontSize: 14, color: '#94A3B8' },
 
   // floating card
   floatingCard:       { backgroundColor: C.surface, marginHorizontal: 16, marginTop: 10, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: C.border, marginBottom: 16 },
   floatingRow:        { flexDirection: 'row', justifyContent: 'space-between' },
   floatingItem:       { alignItems: 'center', flex: 1, paddingVertical: 2 },
   floatingItemBorder: { borderRightWidth: 1, borderRightColor: C.border },
-  floatingIconCircle: { width: 52, height: 52, borderRadius: 26, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  floatingValue:      { fontSize: 20, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
-  floatingLabel:      { fontSize: 11, color: C.textSub, fontWeight: '500', textAlign: 'center', marginTop: 2 },
+  floatingIconCircle: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  floatingValue:      { fontSize: 18, fontWeight: '800', color: C.text, letterSpacing: -0.5 },
+  floatingLabel:      { fontSize: 9,  color: C.textSub, fontWeight: '600', textAlign: 'center', marginTop: 2 },
 
   // blue card
   blueCard:           { backgroundColor: C.primary, marginHorizontal: 16, borderRadius: 18, padding: 20, marginBottom: 28, shadowColor: C.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 14, elevation: 8 },
@@ -773,12 +1048,14 @@ const s = StyleSheet.create({
   blueCardArrow:      { fontSize: 30, color: 'rgba(255,255,255,0.7)' },
   blueCardDivider:    { height: 1, backgroundColor: 'rgba(255,255,255,0.22)', marginBottom: 16 },
   blueCardBottom:     { flexDirection: 'row', alignItems: 'center' },
-  blueCardPersonCircle:{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  blueCardPersonCircle:{ width: 60, height: 60, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   blueCardPersonName: { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 2 },
   blueCardPersonSub:  { fontSize: 12, color: 'rgba(255,255,255,0.72)' },
   statusBadge:        { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 20, gap: 4 },
   statusCheck:        { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   statusText:         { color: '#fff', fontSize: 12, fontWeight: '600' },
+  faltasBadgeRow:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  blueCardArrowSm:    { fontSize: 22, color: 'rgba(255,255,255,0.75)', marginLeft: 2 },
 
   // quick access
   quickCard:       { backgroundColor: C.surface, marginHorizontal: 16, marginBottom: 20, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: C.border },
@@ -865,6 +1142,7 @@ const s = StyleSheet.create({
   maisMenuItem:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
   maisMenuIconWrap:{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' },
   maisMenuLabel:   { fontSize: 15, fontWeight: '600', color: '#EF4444' },
+  maisMenuDivider: { height: 1, backgroundColor: C.border, marginHorizontal: 16 },
 
   // bottom nav
   bottomNav:      { flexDirection: 'row', backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, paddingVertical: 8, paddingHorizontal: 4, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 10 },

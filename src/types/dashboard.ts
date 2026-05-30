@@ -48,6 +48,7 @@ export interface DashboardAdminData {
   chamados_abertos:         number;
   faltas_pendentes:         number;
   faltas_hoje:              number;
+  total_atendimentos:       number;
   relatorios_pendentes:     number;
   alertas:                  AlertaAPI[];
   atividade_recente:        AtividadeAPI[];

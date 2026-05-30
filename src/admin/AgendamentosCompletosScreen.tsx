@@ -11,7 +11,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
+import { AppStackParams } from '../navigation/AppNavigator';
 import {
   ArrowLeft, AlertTriangle, CalendarX,
   CheckCircle2, Clock, XCircle, UserX, RefreshCw,
@@ -44,39 +45,38 @@ const C = {
 type StatusCfg = { label: string; color: string; bg: string; accent: string; Icon: React.ComponentType<any> };
 
 function getStatusCfg(item: Agendamento): StatusCfg {
-  if (item.visual_status.alerta) {
-    return { label: 'Atrasado',      color: C.red,    bg: C.redBg,    accent: C.red,    Icon: AlertTriangle };
-  }
+  // Status clínico tem prioridade absoluta — só aguardando diferencia atrasado
   switch (item.status) {
-    case 'realizado':       return { label: 'Realizado',      color: C.green,  bg: C.greenBg,  accent: C.green,  Icon: CheckCircle2 };
-    case 'cancelado':       return { label: 'Cancelado',      color: C.gray,   bg: C.grayBg,   accent: C.gray,   Icon: XCircle };
-    case 'nao_compareceu':  return { label: 'Não compareceu', color: C.amber,  bg: C.amberBg,  accent: C.amber,  Icon: UserX };
-    case 'remarcado':       return { label: 'Remarcado',      color: C.purple, bg: C.purpleBg, accent: C.purple, Icon: RefreshCw };
-    default:                return { label: 'Aguardando',     color: C.primary, bg: '#EBF5FC', accent: C.primary, Icon: Clock };
+    case 'realizado':      return { label: 'Realizado',      color: C.green,   bg: C.greenBg,  accent: C.green,   Icon: CheckCircle2 };
+    case 'cancelado':      return { label: 'Cancelado',      color: C.gray,    bg: C.grayBg,   accent: C.gray,    Icon: XCircle      };
+    case 'nao_compareceu': return { label: 'Não compareceu', color: C.amber,   bg: C.amberBg,  accent: C.amber,   Icon: UserX        };
+    case 'remarcado':      return { label: 'Remarcado',      color: C.purple,  bg: C.purpleBg, accent: C.purple,  Icon: RefreshCw    };
+    default: {
+      const isAtrasado = item.visual_status?.alerta === true || item.status_operacional === 'atrasado';
+      if (isAtrasado)      return { label: 'Atrasado',       color: C.red,     bg: C.redBg,    accent: C.red,     Icon: AlertTriangle };
+      return                      { label: 'Aguardando',     color: C.primary, bg: '#EBF5FC',  accent: C.primary, Icon: Clock        };
+    }
   }
 }
 
 // ─── Filtros ──────────────────────────────────────────────────────────────────
-type FilterKey = 'todos' | StatusAgendamento | 'atrasado';
+type FilterKey = 'todos' | StatusAgendamento;
 
 const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'todos',          label: 'Todos'          },
-  { key: 'aguardando',     label: 'Aguardando'     },
-  { key: 'atrasado',       label: 'Atrasados'      },
-  { key: 'realizado',      label: 'Realizados'     },
-  { key: 'cancelado',      label: 'Cancelados'     },
-  { key: 'nao_compareceu', label: 'Ausências'      },
+  { key: 'todos',          label: 'Todos'      },
+  { key: 'aguardando',     label: 'Aguardando' },
+  { key: 'realizado',      label: 'Realizados' },
+  { key: 'cancelado',      label: 'Cancelados' },
+  { key: 'nao_compareceu', label: 'Ausências'  },
 ];
 
 function countFor(key: FilterKey, items: Agendamento[]): number {
-  if (key === 'todos')     return items.length;
-  if (key === 'atrasado')  return items.filter(i => i.visual_status.alerta).length;
+  if (key === 'todos') return items.filter(i => i.status !== 'remarcado').length;
   return items.filter(i => i.status === key).length;
 }
 
 function applyFilter(key: FilterKey, items: Agendamento[]): Agendamento[] {
-  if (key === 'todos')     return items;
-  if (key === 'atrasado')  return items.filter(i => i.visual_status.alerta);
+  if (key === 'todos') return items.filter(i => i.status !== 'remarcado');
   return items.filter(i => i.status === key);
 }
 
@@ -138,11 +138,14 @@ function AgendamentoCard({ item }: { item: Agendamento }) {
 // ─── Tela principal ───────────────────────────────────────────────────────────
 export function AgendamentosCompletosScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<AppStackParams, 'AgendamentosCompletos'>>();
   const { items, total, loading, loadingMore, error, sessionExpired, hasMore, refresh, loadMore } =
     useAgendamentosHojeTodos();
 
-  const [filter, setFilter]     = useState<FilterKey>('todos');
+  const [filter, setFilter] = useState<FilterKey>(route.params?.initialFilter ?? 'todos');
   const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
   const displayed = useMemo(() => applyFilter(filter, items), [filter, items]);
 
@@ -187,7 +190,7 @@ export function AgendamentosCompletosScreen() {
         </View>
         {!loading && (
           <View style={s.headerBadge}>
-            <Text style={s.headerBadgeText}>{total}</Text>
+            <Text style={s.headerBadgeText}>{countFor('todos', items)}</Text>
           </View>
         )}
       </View>
@@ -242,7 +245,7 @@ export function AgendamentosCompletosScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh}
               colors={[C.primary]} tintColor={C.primary} />
           }
-          onEndReached={filter === 'todos' ? loadMore : undefined}
+          onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           ListEmptyComponent={renderEmpty}
           ListFooterComponent={renderFooter}
@@ -260,7 +263,7 @@ const s = StyleSheet.create({
   // header
   header:          { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 12, paddingBottom: 20, gap: 8 },
   backBtn:         { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  headerTitle:     { fontSize: 18, fontWeight: '800', color: '#fff' },
+  headerTitle:     { fontSize: 21, fontWeight: '800', color: '#fff' },
   headerSub:       { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2, textTransform: 'capitalize' },
   headerBadge:     { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
   headerBadgeText: { fontSize: 13, fontWeight: '800', color: '#fff' },

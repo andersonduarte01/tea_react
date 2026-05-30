@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Agendamento } from '../types/agendamento';
 import { getAgendamentosHojeTodos } from '../services/agendamentosService';
 import { SessionExpiredError } from '../services/httpClient';
@@ -56,7 +56,6 @@ export function useAgendamentosHojeTodos(): UseAgendamentosTodosReturn {
     }
   }, []);
 
-  useEffect(() => { load(1, true); }, [load]);
 
   const refresh = useCallback(async () => {
     pageRef.current = 1;

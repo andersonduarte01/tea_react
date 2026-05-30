@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Agendamento } from '../types/agendamento';
 import { getAgendamentosHoje } from '../services/agendamentosService';
 import { SessionExpiredError } from '../services/httpClient';
@@ -38,13 +38,12 @@ export function useAgendamentosHoje(): UseAgendamentosReturn {
     try {
       const data = await getAgendamentosHoje(pageNum);
       setState(prev => ({
-        items:          reset ? data.results : [...prev.items, ...data.results],
-        total:          data.count,
-        loading:        false,
-        loadingMore:    false,
-        error:          null,
-        sessionExpired: false,
-        hasMore:        data.next !== null,
+        ...prev,
+        items:       reset ? data.results : [...prev.items, ...data.results],
+        total:       data.count,
+        loading:     false,
+        loadingMore: false,
+        hasMore:     data.next !== null,
       }));
     } catch (err: unknown) {
       if (err instanceof SessionExpiredError) {
@@ -56,7 +55,6 @@ export function useAgendamentosHoje(): UseAgendamentosReturn {
     }
   }, []);
 
-  useEffect(() => { load(1, true); }, [load]);
 
   const refresh = useCallback(async () => {
     pageRef.current = 1;

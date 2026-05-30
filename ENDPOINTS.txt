@@ -1,8 +1,106 @@
 ================================================================================
- API TEA-CE — MAPA DE ENDPOINTS  (atualizado: 2026-05-24 — filtro de status em agendamentos)
+ API TEA-CE — MAPA DE ENDPOINTS  (atualizado: 2026-05-29)
  Base URL : /api/v1/
  Auth     : Authorization: Bearer <access_token>  (em todos exceto auth/login/)
  Clínica  : X-Clinica-ID: <id>                    (em todos exceto auth/)
+
+ Changelog
+ ─────────────────────────────────────────────────────────────────────────────
+ 2026-05-28  POST  agenda/profissionais/ — cria configuração de agenda para profissional.
+             Restrito a ADMIN. Cria ConfiguracaoAgenda + DiasTrabalho atomicamente.
+             Retorna 409 se já existir agenda ativa para o profissional na clínica.
+             Bugfix: IntegrityError (race condition na constraint unique) agora retorna
+             409 em vez de 500.
+ 2026-05-28  PATCH agenda/profissionais/<id>/ — atualização parcial da configuração
+             de agenda. Restrito a ADMIN. Todos os campos opcionais.
+             Bugfix: substituído refresh_from_db() por select_related explícito para
+             evitar N+1 após salvar dias_trabalho.
+ 2026-05-28  GET   funcionario/<id>/ — campos data_nascimento e endereco adicionados.
+ 2026-05-28  PATCH funcionario/<id>/ — edição parcial de funcionário por ADMIN.
+             Campos editáveis: telefone, data_nascimento, funcao, endereco.
+ 2026-05-28  POST  funcionario/<id>/reset-senha/ — redefinição de senha de
+             funcionário pelo ADMIN sem exigir senha atual. Retorna 204.
+ 2026-05-28  PATCH profissional/<id>/ — edição parcial de profissional por ADMIN.
+             Campos editáveis: telefone, data_nascimento, funcao, endereco.
+             Somente leitura: id, cpf, email, ativo, foto_url. Retorna o mesmo
+             shape do GET profissional/<id>/.
+ 2026-05-28  POST  profissional/<id>/reset-senha/ — redefinição de senha de
+             profissional pelo ADMIN sem exigir senha atual. Retorna 204.
+ 2026-05-28  GET  profissional/<id>/ — campo "data_nascimento" adicionado à resposta
+             (estava faltando; editável via PATCH mas ausente no GET). YYYY-MM-DD | null.
+ 2026-05-28  GET  profissional/<id>/ — campo "endereco" adicionado à resposta.
+             Dado já existia no banco (persistido via POST profissional/);
+             apenas exposto no serializer de detalhe. null se não cadastrado.
+ 2026-05-28  POST auth/change-password/ — endpoint novo para alteração de senha do
+             usuário autenticado. Disponível para todos os papéis. Valida senha
+             atual, mínimo 8 chars, confirmação e que nova != atual. Retorna 204.
+ 2026-05-28  GET/PATCH admin/perfil/ — documentação completa e correção do PATCH:
+             endereco era read_only e não persistia no PATCH; agora suporta partial
+             update do endereço aninhado com as mesmas regras de CEP/estado.
+             Campos editáveis: telefone, data_nascimento, endereco.
+             Somente leitura: id, cpf, email, ativo. Foto: não disponível (modelo
+             Administrador não possui campo foto).
+ 2026-05-28  PATCH profissional/<id>/foto/ — upload de foto de profissional (ADMIN).
+             multipart/form-data, max 5 MB. Retorna { "foto_url": "..." }.
+ 2026-05-28  PATCH funcionario/<id>/foto/ — upload de foto de funcionário (ADMIN).
+             multipart/form-data, max 5 MB. Retorna { "foto_url": "..." }.
+ 2026-05-28  PATCH clinica/foto/ — upload de foto da clínica (multipart/form-data).
+             Restrito a ADMIN. Processa imagem via imagekit (300×300, JPEG q85).
+             Retorna 200 com { "foto": "<url_absoluta>" }.
+ 2026-05-28  PATCH clinica/ — atualização parcial de dados cadastrais da clínica.
+             Restrito a ADMIN. Campos editáveis: nome, telefone, email, endereco.
+             Partial update também nos subcampos de endereco. CEP normalizado
+             (máscara removida antes de persistir). Somente leitura: id, slug,
+             cnpj, foto, ativa, data_criacao.
+ 2026-05-27  GET  clinica/dashboard/ — campo total_atendimentos adicionado para
+             ADMIN e FUNC: total histórico de agendamentos com status=realizado
+             na clínica (sem filtro de data, nunca null)
+ 2026-05-27  POST funcionario/  — cadastro de funcionário via app mobile (ADMIN)
+ 2026-05-26  POST profissional/ — cadastro de profissional via app mobile (ADMIN)
+ 2026-05-26  GET  agenda/agendamentos/ — bugfix: status_operacional e
+             visual_status.alerta agora calculados em tempo real no serializer,
+             não dependem mais do campo persistido no banco
+ 2026-05-29  GET  agenda/profissionais/ — confirmado SEM paginação (array simples).
+             A view usa APIView puro; DEFAULT_PAGINATION_CLASS do DRF só se aplica
+             a GenericAPIView/ViewSet. Documentação corrigida: seção PAGINAÇÃO
+             agora lista explicitamente os endpoints sem paginação (profissional/,
+             agenda/profissionais/, funcionario/). Frontend não deve implementar
+             loop de paginação neste endpoint.
+ 2026-05-29  POST agenda/profissionais/ — bugfix: quando profissional possui
+             ConfiguracaoAgenda com ativa=False (inativa), o POST agora reativa o
+             registro existente e atualiza seus campos em vez de retornar 409.
+             Comportamento anterior: 409 conflict para qualquer config existente,
+             mesmo inativa — deixava o admin sem saída (não aparecia na listagem
+             para edição e bloqueava a criação). Opção A implementada: reativar +
+             atualizar dentro de transaction.atomic(); DiasTrabalho atualizado via
+             update_or_create. Retorna 201 com o objeto reativado.
+ 2026-05-29  GET  agenda/profissionais/ — filtro ativo=True aplicado na listagem.
+             ConfiguracaoAgenda com ativo=False (inativa ou órfã) não aparecem
+             mais nos resultados. Corrige contagem incorreta (30→28) causada por
+             registros cujo profissional não possuía mais UsuarioClinica ativo.
+ 2026-05-29  POST agenda/profissionais/limpar-orfaos/ — endpoint de manutenção que
+             executa soft delete (ativo=False) nas ConfiguracaoAgenda cujo profissional
+             não possui UsuarioClinica ativo para a clínica. Restrito a ADMIN.
+             Retorna 200 com contagem de registros marcados como inativos.
+ 2026-05-29  GET  agenda/profissionais/ — shape da listagem inclui agora os campos
+             atende_feriados_nacionais e atende_feriados_locais (bool, nunca null).
+             Causa raiz: ProfissionalAgendaSerializer (lista) e
+             ProfissionalAgendaDetalheSerializer (detalhe) são classes separadas;
+             os campos existiam apenas no detalhe. Corrigido adicionando os dois
+             campos ao Meta.fields do serializer de lista.
+             Permite exibir indicadores de feriado nos cards sem chamadas N+1.
+ 2026-05-29  POST agenda/profissionais/ — bugfix definitivo do 409 universal.
+             Causa raiz: o signal post_save (signals.py) cria DiasTrabalho
+             automaticamente via get_or_create sempre que uma ConfiguracaoAgenda
+             nova é salva. O view tentava criar um segundo DiasTrabalho para o
+             mesmo configuracao_id → UNIQUE constraint failed (OneToOneField) →
+             IntegrityError → 409 para TODOS os profissionais sem agenda,
+             inclusive os que nunca tiveram config no banco.
+             Fix: DiasTrabalho.objects.create() substituído por update_or_create()
+             no branch de criação nova, tornando-o idêntico ao branch de
+             reativação que já funcionava. O signal cria o registro com defaults;
+             o update_or_create aplica os valores enviados pelo frontend.
+ 2026-05-24  GET  agenda/agendamentos/ — filtro ?status=atrasado adicionado
 ================================================================================
 
 ── FORMATO PADRÃO DE ERRO ──────────────────────────────────────────────────────
@@ -29,16 +127,21 @@
 
 ── PAGINAÇÃO ────────────────────────────────────────────────────────────────────
 
-  Endpoints de listagem usam paginação por número de página.
+  A maioria dos endpoints de listagem usa paginação por número de página.
   Parâmetros: ?page=<N>  ?page_size=<N>  (padrão: 20, máximo: 100)
 
-  Formato de resposta:
+  Formato de resposta paginada:
   {
     "count":    248,
     "next":     "http://host/api/v1/paciente/?page=2" | null,
     "previous": null,
     "results":  [ ... ]
   }
+
+  Endpoints SEM paginação (retornam array simples [ ... ]):
+    GET profissional/          — dataset limitado ao nº de profissionais da clínica
+    GET agenda/profissionais/  — idem; necessário para cross-reference com profissional/
+    GET funcionario/           — dataset limitado ao nº de funcionários da clínica
 
 ================================================================================
  1. AUTENTICAÇÃO  /api/v1/auth/
@@ -116,6 +219,33 @@ GET   auth/me/
       "clinicas": [ { "id", "nome", "tipo_usuario", "tela_inicial" } ]
     }
 
+────────────────────────────────────────────────────────────────────────────────
+POST  auth/change-password/
+  Altera a senha do usuário autenticado. Disponível para todos os papéis
+  (ADMIN, FUNC, PROF, RESP, PAC).
+
+  Request:
+    {
+      "senha_atual":    "SenhaAtual@123",   // obrigatório — senha atual do usuário
+      "nova_senha":     "NovaSenha@456",    // obrigatório — mínimo 8 caracteres
+      "confirmar_nova": "NovaSenha@456"     // obrigatório — deve ser igual a nova_senha
+    }
+
+  Response 204 (sem body) — senha alterada com sucesso.
+
+  Erros:
+    400 {
+          "status": "error",
+          "code":   "validation_error",
+          "errors": {
+            "senha_atual":    ["Senha atual incorreta."],
+            "nova_senha":     ["Certifique-se de que este campo tenha no mínimo 8 caracteres.",
+                               "A nova senha não pode ser igual à senha atual."],
+            "confirmar_nova": ["As senhas não coincidem."]
+          }
+        }
+    401 { "status": "error", "code": "authentication_error", "detail": "..." }
+
 ================================================================================
  2. CLÍNICA E DASHBOARD  /api/v1/clinica/
 ================================================================================
@@ -123,6 +253,7 @@ GET   auth/me/
 ────────────────────────────────────────────────────────────────────────────────
 GET   clinica/
   Dados da clínica identificada por X-Clinica-ID e papel do usuário nela.
+  Disponível para todos os papéis (ADMIN, FUNC, PROF, RESP, PAC).
 
   Response 200:
     {
@@ -133,13 +264,77 @@ GET   clinica/
       "telefone":          "85333330000",
       "email":             "contato@clinica.com",
       "foto":              "https://..." | null,
-      "endereco":          { "logradouro", "numero", "bairro", "cidade", "estado", "cep" },
+      "endereco":          { "logradouro", "numero", "complemento", "bairro", "cidade", "estado", "cep" },
       "ativa":             true,
       "data_criacao":      "2023-01-01T00:00:00Z",
       "meu_papel":         "ADMIN",
       "meu_papel_display": "Administrador",
       "tipo_usuario_atual": "ADMIN"   // alias de meu_papel para o app mobile
     }
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH clinica/
+  Atualização parcial dos dados cadastrais da clínica. Restrito a ADMIN.
+  Retorna 403 para qualquer outro papel (FUNC, PROF, RESP, PAC).
+
+  Request body (todos os campos opcionais — PATCH parcial):
+    {
+      "nome":     "Clínica TEA Centro",   // não pode ser vazio se enviado
+      "telefone": "85333330000",
+      "email":    "contato@clinica.com",  // deve ser e-mail válido se enviado
+      "endereco": {
+        "logradouro":  "Rua das Flores",  // partial update — enviar apenas o que mudar
+        "numero":      "100",
+        "complemento": "Sala 2",
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",              // exatamente 2 caracteres se enviado
+        "cep":         "60000-000"        // 8 dígitos após remover máscara; normalizado antes de persistir
+      }
+    }
+
+  Regras:
+    • Se "endereco" for omitido, o endereço existente não é alterado.
+    • Se "endereco" for enviado, partial update nos subcampos (apenas os
+      enviados são atualizados; os demais permanecem inalterados).
+    • "cep" normalizado: máscara removida, apenas dígitos armazenados
+      ("60000-000" → "60000000").
+    • Campos somente leitura (ignorados mesmo se enviados):
+      id, slug, cnpj, foto, ativa, data_criacao.
+
+  Response 200 — objeto completo da clínica (mesmo shape do GET clinica/):
+    { "id", "nome", "slug", "cnpj", "telefone", "email", "foto", "endereco",
+      "ativa", "data_criacao", "meu_papel", "meu_papel_display", "tipo_usuario_atual" }
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { "campo": ["msg"] } }
+    403 { "status": "error", "code": "permission_denied",
+          "detail": "Apenas administradores podem editar a clínica." }
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH clinica/foto/
+  Substitui a foto da clínica. Restrito a ADMIN.
+  Content-Type: multipart/form-data
+
+  Request (form-data):
+    foto  — arquivo de imagem (obrigatório, max 5 MB)
+            Processado automaticamente: redimensionado para 300×300 px, salvo
+            como JPEG com qualidade 85 (imagekit ProcessedImageField).
+
+  Response 200:
+    { "foto": "https://host/media/clinica/fotos/abc123.jpg" }
+
+  Erros:
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["Nenhum arquivo foi submetido."] } }
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["A foto não pode ultrapassar 5 MB."] } }
+    403 { "status": "error", "code": "permission_denied",
+          "detail": "Apenas administradores podem alterar a foto da clínica." }
+
+  Nota mobile: após o PATCH bem-sucedido, a nova URL retornada deve substituir
+  o campo "foto" no estado local da tela. O GET clinica/ também retorna
+  a URL atualizada (campo "foto").
 
 ────────────────────────────────────────────────────────────────────────────────
 GET   clinica/dashboard/
@@ -158,6 +353,7 @@ GET   clinica/dashboard/
     "chamados_abertos":        0,     // módulo não implementado
     "faltas_pendentes":        8,     // FaltaProfissional a partir de hoje (hoje inclusive)
     "faltas_hoje":             2,     // FaltaProfissional com data == hoje
+    "total_atendimentos":      1487,  // total histórico: status=realizado, toda a clínica, sem filtro de data
     "relatorios_pendentes":    0,     // módulo não implementado
     "alertas": [
       {
@@ -240,12 +436,76 @@ GET   clinica/dashboard/
  3. ADMINISTRADOR  /api/v1/admin/
 ================================================================================
 
-GET    admin/perfil/         — Perfil do administrador autenticado
-PATCH  admin/perfil/         — Atualização parcial do perfil
+────────────────────────────────────────────────────────────────────────────────
+GET   admin/perfil/
+  Perfil do administrador autenticado.
+  Retorna 404 se o usuário autenticado não possui perfil de administrador.
 
-Nota: criação e gestão de usuários (profissional, funcionário, paciente,
-responsável) é funcionalidade exclusiva do painel web. O app mobile é
-somente leitura para gestão de usuários.
+  Response 200:
+    {
+      "id":               1,
+      "nome":             "Anderson Silva",      // somente leitura — vem de usuario.nome
+      "email":            "anderson@email.com",  // somente leitura — vem de usuario.email
+      "cpf":              "123.456.789-00",       // somente leitura
+      "telefone":         "85999990000" | null,
+      "data_nascimento":  "1990-06-15"  | null,  // formato YYYY-MM-DD
+      "ativo":            true,                  // somente leitura
+      "endereco": {
+        "logradouro":  "Rua das Flores",
+        "numero":      "100",
+        "complemento": "Sala 2" | null,
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",
+        "cep":         "60000000"
+      } | null
+    }
+
+  Nota: o modelo Administrador não possui campo foto. Não há foto_url na resposta.
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH admin/perfil/
+  Atualização parcial do perfil do administrador autenticado. PATCH puro —
+  apenas os campos enviados são atualizados.
+
+  Request body (todos os campos opcionais):
+    {
+      "telefone":        "85999990000",
+      "data_nascimento": "1990-06-15",    // YYYY-MM-DD
+      "endereco": {
+        "logradouro":  "Rua das Flores",  // partial update — enviar só o que mudar
+        "numero":      "100",
+        "complemento": "Sala 2",
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",              // exatamente 2 caracteres se enviado
+        "cep":         "60000-000"        // 8 dígitos após remover máscara
+      }
+    }
+
+  Campos somente leitura (ignorados mesmo se enviados):
+    id, cpf, email, ativo
+
+  Regras:
+    • Se "endereco" for omitido, o endereço não é alterado.
+    • Se "endereco" for enviado, partial update nos subcampos (apenas os
+      enviados são atualizados; os demais permanecem inalterados).
+    • "cep" normalizado: máscara removida, apenas dígitos armazenados.
+    • Se o admin ainda não possui endereço cadastrado e "endereco" for enviado,
+      um novo registro de Endereco é criado automaticamente.
+    • foto: não suportado — o modelo Administrador não possui campo foto.
+
+  Response 200 — objeto completo atualizado (mesmo shape do GET admin/perfil/).
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { "campo": ["msg"] } }
+    401 { "status": "error", "code": "authentication_error", "detail": "..." }
+    404 { "status": "error", "code": "not_found", "detail": "Perfil de administrador não encontrado." }
+
+────────────────────────────────────────────────────────────────────────────────
+Nota: criação de paciente e responsável permanece exclusiva do painel web.
+O app mobile suporta criação de profissional via POST profissional/ (seção 4)
+e criação de funcionário via POST funcionario/ (seção 5) — ambos restritos a ADMIN.
 
 ================================================================================
  4. PROFISSIONAL  /api/v1/profissional/
@@ -260,25 +520,168 @@ GET   profissional/
   Nota: foto_url e data_ingresso são string ISO-8601 ou null.
 
 ────────────────────────────────────────────────────────────────────────────────
-GET   profissional/<id>/                                          [NOVO]
+POST  profissional/                                               [NOVO]
+  Cadastra novo profissional. Restrito a ADMIN.
+  Cria em sequência: Usuario → Profissional → UsuarioClinica (tipo=PROF, ativo=True).
+  Toda a operação é atômica — qualquer falha reverte tudo.
+
+  Request body:
+    {
+      "nome":            "Dr. Carlos Lima",      // obrigatório
+      "email":           "carlos@clinica.com",   // obrigatório — único globalmente
+      "password":        "SenhaSegura@123",       // obrigatório — mín. 8 chars, write-only
+      "cpf":             "12345678900",           // obrigatório — 11 dígitos numéricos, único
+      "funcao":          "Psiquiatra",            // obrigatório
+      "telefone":        "85999990000",           // opcional
+      "data_nascimento": "1985-03-15",            // opcional — YYYY-MM-DD
+      "data_ingresso":   "2026-05-26",            // opcional — aceito, não afeta o banco
+      "endereco": {                               // opcional — objeto completo ou omitido
+        "logradouro": "Rua das Flores",           // obrigatório se endereco presente
+        "numero":     "100",                      // opcional
+        "complemento":"Apto 2",                   // opcional
+        "bairro":     "Centro",                   // obrigatório se endereco presente
+        "cidade":     "Fortaleza",                // obrigatório se endereco presente
+        "estado":     "CE",                       // obrigatório se endereco presente — 2 chars
+        "cep":        "60000-000"                 // obrigatório se endereco presente
+      }
+    }
+
+  Nota sobre CPF: enviar apenas dígitos ("12345678900") ou formatado
+  ("123.456.789-00") — o backend normaliza antes de validar e persistir.
+
+  Nota sobre data_ingresso: aceito no request mas não persiste como campo
+  separado (o modelo não possui esse campo). A resposta retorna data_ingresso
+  igual a data_criacao do registro.
+
+  Nota sobre foto: enviar após criação via PATCH profissional/<id>/foto/
+  para evitar multipart no POST inicial.
+
+  Response 201:
+    {
+      "id":            42,
+      "nome":          "Dr. Carlos Lima",
+      "email":         "carlos@clinica.com",
+      "cpf":           "12345678900",
+      "funcao":        "Psiquiatra",
+      "telefone":      "85999990000",
+      "ativo":         true,
+      "data_ingresso": "2026-05-26T00:00:00Z",
+      "foto_url":      null
+    }
+
+  Erros:
+    400 { "email":  ["Já existe um usuário com este e-mail."] }
+    400 { "cpf":    ["CPF já vinculado a outro profissional."] }
+    400 { "campo":  ["Este campo é obrigatório."] }
+    400 { "password": ["Certifique-se de que este campo tenha no mínimo 8 caracteres."] }
+    403 permission_denied  — usuário não é ADMIN na clínica do X-Clinica-ID
+
+────────────────────────────────────────────────────────────────────────────────
+GET   profissional/<id>/
   Detalhe de um profissional da clínica.
   ADMIN e FUNC: qualquer ID da clínica.
   PROF: apenas o próprio ID.
 
   Response 200:
     {
-      "id":           1,
-      "nome":         "Dr. Carlos Lima",
-      "email":        "carlos@clinica.com",
-      "cpf":          "123.456.789-00",
-      "funcao":       "Psiquiatra",
-      "telefone":     "85999990000",
-      "ativo":        true,
-      "data_ingresso": "2023-01-15T00:00:00Z",
-      "foto_url":     "https://..." | null
+      "id":              1,
+      "nome":            "Dr. Carlos Lima",
+      "email":           "carlos@clinica.com",
+      "cpf":             "12345678900",
+      "funcao":          "Psiquiatra",
+      "telefone":        "85999990000",
+      "ativo":           true,
+      "data_ingresso":   "2023-01-15T00:00:00Z",
+      "data_nascimento": "1985-03-15" | null,
+      "foto_url":        "https://..." | null,
+      "endereco": {
+        "logradouro":  "Rua das Flores",
+        "numero":      "100",
+        "complemento": "Apto 2" | null,
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",
+        "cep":         "60000000"
+      } | null
     }
 
   Erros: 403 (sem permissão), 404 (não encontrado nesta clínica)
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH profissional/<id>/
+  Edição parcial de um profissional pela visão do administrador. Restrito a ADMIN.
+  Retorna 403 para qualquer outro papel.
+
+  Request body (todos os campos opcionais — PATCH parcial):
+    {
+      "telefone":        "85999990000",
+      "data_nascimento": "1985-03-15",    // YYYY-MM-DD
+      "funcao":          "Psiquiatra",
+      "endereco": {
+        "logradouro":  "Rua das Flores",  // partial update — enviar só o que mudar
+        "numero":      "100",
+        "complemento": "Sala 2",
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",
+        "cep":         "60000-000"
+      }
+    }
+
+  Campos somente leitura (ignorados mesmo se enviados):
+    id, cpf, email, ativo, foto_url
+
+  Response 200 — objeto completo (mesmo shape do GET profissional/<id>/).
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { ... } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH profissional/<id>/foto/
+  Substitui a foto de um profissional. Restrito a ADMIN.
+  Content-Type: multipart/form-data
+
+  Request (form-data):
+    foto  — arquivo de imagem (obrigatório, max 5 MB)
+            Processado automaticamente: redimensionado para 300×300 px, JPEG q85.
+
+  Response 200:
+    { "foto_url": "https://host/media/profissionais/fotos/abc123.jpg" }
+
+  Erros:
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["Nenhum arquivo foi submetido."] } }
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["A foto não pode ultrapassar 5 MB."] } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
+
+  Nota: o campo retornado é "foto_url", consistente com GET profissional/<id>/.
+
+────────────────────────────────────────────────────────────────────────────────
+POST  profissional/<id>/reset-senha/
+  Redefine a senha de um profissional. Restrito a ADMIN.
+  Não exige senha atual — o admin tem autoridade para redefinir diretamente.
+  Retorna 403 para qualquer outro papel.
+
+  Request:
+    {
+      "nova_senha":     "NovaSenha@456",  // obrigatório — mínimo 8 caracteres
+      "confirmar_nova": "NovaSenha@456"   // obrigatório — deve ser igual a nova_senha
+    }
+
+  Response 204 (sem body) — senha redefinida com sucesso.
+
+  Erros:
+    400 { "status": "error", "code": "validation_error",
+          "errors": {
+            "nova_senha":     ["Certifique-se de que este campo tenha no mínimo 8 caracteres."],
+            "confirmar_nova": ["As senhas não coincidem."]
+          } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
 
 ────────────────────────────────────────────────────────────────────────────────
 GET   profissional/perfil/   — Perfil completo do profissional autenticado
@@ -297,24 +700,162 @@ GET   funcionario/
   Retorna lista simples: [ { id, nome, email, funcao, telefone, foto } ]
 
 ────────────────────────────────────────────────────────────────────────────────
+POST  funcionario/                                                [NOVO]
+  Cadastra novo funcionário administrativo. Restrito a ADMIN.
+  Cria em sequência: Usuario → Funcionario → UsuarioClinica (tipo=FUNC, ativo=True).
+  Toda a operação é atômica — qualquer falha reverte tudo.
+
+  Request body:
+    {
+      "nome":            "Ana Santos",        // obrigatório
+      "email":           "ana@clinica.com",   // obrigatório — único globalmente
+      "password":        "SenhaSegura@123",   // obrigatório — mín. 8 chars, write-only
+      "cpf":             "98765432100",       // obrigatório — 11 dígitos, único
+      "funcao":          "Recepcionista",     // obrigatório
+      "telefone":        "85988880000",       // opcional
+      "data_nascimento": "1990-06-15",        // opcional — YYYY-MM-DD
+      "endereco": {                           // opcional — objeto completo ou omitido
+        "logradouro": "Rua das Flores",       // obrigatório se endereco presente
+        "numero":     "200",                  // opcional
+        "complemento":"Sala 1",              // opcional
+        "bairro":     "Centro",              // obrigatório se endereco presente
+        "cidade":     "Fortaleza",           // obrigatório se endereco presente
+        "estado":     "CE",                  // obrigatório se endereco presente — 2 chars
+        "cep":        "60000-000"            // obrigatório se endereco presente
+      }
+    }
+
+  Nota sobre CPF: enviar apenas dígitos ("98765432100") ou formatado
+  ("987.654.321-00") — o backend normaliza antes de validar e persistir.
+
+  Nota sobre foto: enviar após criação via PATCH funcionario/<id>/foto/
+  para evitar multipart no POST inicial.
+
+  Response 201:
+    {
+      "id":            15,
+      "nome":          "Ana Santos",
+      "email":         "ana@clinica.com",
+      "cpf":           "98765432100",
+      "funcao":        "Recepcionista",
+      "telefone":      "85988880000",
+      "ativo":         true,
+      "data_ingresso": "2026-05-27T00:00:00Z",
+      "foto_url":      null
+    }
+
+  Erros:
+    400 { "email":    ["Já existe um usuário com este e-mail."] }
+    400 { "cpf":      ["CPF já vinculado a outro funcionário."] }
+    400 { "campo":    ["Este campo é obrigatório."] }
+    400 { "password": ["Certifique-se de que este campo tenha no mínimo 8 caracteres."] }
+    403 permission_denied  — usuário não é ADMIN na clínica do X-Clinica-ID
+
+────────────────────────────────────────────────────────────────────────────────
 GET   funcionario/<id>/                                           [NOVO]
   Detalhe de um funcionário da clínica.
   Restrito a ADMIN.
 
   Response 200:
     {
-      "id":           1,
-      "nome":         "Ana Santos",
-      "email":        "ana@clinica.com",
-      "cpf":          "987.654.321-00",
-      "funcao":       "Recepcionista",
-      "telefone":     "85988880000",
-      "data_ingresso": "2022-06-01T00:00:00Z",
-      "ativo":        true,     // obtido de UsuarioClinica.ativo (não do model)
-      "foto_url":     "https://..." | null
+      "id":              1,
+      "nome":            "Ana Santos",
+      "email":           "ana@clinica.com",
+      "cpf":             "987.654.321-00",
+      "funcao":          "Recepcionista",
+      "telefone":        "85988880000",
+      "data_ingresso":   "2022-06-01T00:00:00Z",
+      "data_nascimento": "1990-06-15" | null,
+      "ativo":           true,     // obtido de UsuarioClinica.ativo (não do model)
+      "foto_url":        "https://..." | null,
+      "endereco": {
+        "logradouro":  "Rua das Flores",
+        "numero":      "100",
+        "complemento": "Apto 2" | null,
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",
+        "cep":         "60000000"
+      } | null
     }
 
   Erros: 403 (não é ADMIN), 404 (não encontrado nesta clínica)
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH funcionario/<id>/
+  Edição parcial de um funcionário pela visão do administrador. Restrito a ADMIN.
+  Retorna 403 para qualquer outro papel.
+
+  Request body (todos os campos opcionais — PATCH parcial):
+    {
+      "telefone":        "85988880000",
+      "data_nascimento": "1990-06-15",    // YYYY-MM-DD
+      "funcao":          "Recepcionista",
+      "endereco": {
+        "logradouro":  "Rua das Flores",  // partial update — enviar só o que mudar
+        "numero":      "200",
+        "complemento": "Sala 1",
+        "bairro":      "Centro",
+        "cidade":      "Fortaleza",
+        "estado":      "CE",
+        "cep":         "60000-000"
+      }
+    }
+
+  Campos somente leitura (ignorados mesmo se enviados):
+    id, cpf, email, ativo, foto_url
+
+  Response 200 — objeto completo (mesmo shape do GET funcionario/<id>/).
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { ... } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
+
+────────────────────────────────────────────────────────────────────────────────
+PATCH funcionario/<id>/foto/
+  Substitui a foto de um funcionário. Restrito a ADMIN.
+  Content-Type: multipart/form-data
+
+  Request (form-data):
+    foto  — arquivo de imagem (obrigatório, max 5 MB)
+            Processado automaticamente: redimensionado para 300×300 px, JPEG q85.
+
+  Response 200:
+    { "foto_url": "https://host/media/funcionarios/fotos/abc123.jpg" }
+
+  Erros:
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["Nenhum arquivo foi submetido."] } }
+    400 { "status": "error", "code": "validation_error",
+          "errors": { "foto": ["A foto não pode ultrapassar 5 MB."] } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
+
+  Nota: o campo retornado é "foto_url", consistente com GET funcionario/<id>/.
+  Apenas funcionários com ativo=True na clínica são acessíveis.
+
+────────────────────────────────────────────────────────────────────────────────
+POST  funcionario/<id>/reset-senha/
+  Redefine a senha de um funcionário. Restrito a ADMIN.
+  Não exige senha atual — o admin tem autoridade para redefinir diretamente.
+
+  Request:
+    {
+      "nova_senha":     "NovaSenha@456",  // obrigatório — mínimo 8 caracteres
+      "confirmar_nova": "NovaSenha@456"   // obrigatório — deve ser igual a nova_senha
+    }
+
+  Response 204 (sem body) — senha redefinida com sucesso.
+
+  Erros:
+    400 { "status": "error", "code": "validation_error",
+          "errors": {
+            "nova_senha":     ["Certifique-se de que este campo tenha no mínimo 8 caracteres."],
+            "confirmar_nova": ["As senhas não coincidem."]
+          } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
 
 ────────────────────────────────────────────────────────────────────────────────
 GET   funcionario/perfil/    — Perfil completo do funcionário autenticado
@@ -411,28 +952,43 @@ GET    agenda/agendamentos/
   ── SHAPE DA RESPOSTA (item da lista) ───────────────────────────────────────
 
   {
-    "id":               42,
-    "paciente_id":      10,
-    "paciente_nome":    "João Silva",
-    "profissional_nome":"Dr. Carlos Lima",
-    "data":             "2026-05-24",
-    "hora_inicio":      "14:00:00",
-    "hora_fim":         "14:50:00",
-    "status":           "aguardando",          // status clínico
-    "status_operacional": "atrasado",          // status operacional no banco
+    "id":                42,
+    "paciente_id":       10,
+    "paciente_nome":     "João Silva",
+    "profissional_nome": "Dr. Carlos Lima",
+    "data":              "2026-05-24",
+    "hora_inicio":       "14:00:00",
+    "hora_fim":          "14:50:00",
+    "status":            "aguardando",          // status clínico persistido
+    "status_operacional": "atrasado",           // calculado em tempo real — ver nota
     "visual_status": {
-      "label":   "Aguardando",
-      "classe":  "slot-agendado slot-atrasado",// slot-atrasado = alerta visual
-      "icone":   "fa-clock-o",
-      "alerta":  true                          // presente apenas quando atrasado
+      "label":  "Aguardando",
+      "classe": "slot-agendado slot-atrasado",  // slot-atrasado = alerta visual
+      "icone":  "fa-clock-o",
+      "alerta": true                            // calculado em tempo real — ver nota
     }
   }
 
-  Nota sobre "alerta" em visual_status:
-    O campo "alerta": true indica agendamento atrasado. É calculado em
-    tempo real pelo servidor na resposta — mesmo que status_operacional
-    no banco ainda não tenha sido atualizado, o app receberá o alerta
-    correto. Use este campo para exibir badges/indicadores visuais.
+  Nota sobre status_operacional e visual_status.alerta:
+    Ambos os campos são calculados em tempo real pelo serializer no momento
+    da resposta — não dependem do valor persistido no banco. A regra é:
+    se status == "aguardando" e data+hora_inicio < agora → status_operacional
+    retorna "atrasado" e visual_status.alerta retorna true, independente do
+    que estiver gravado no campo status_operacional do banco.
+
+    Isso garante que o app receba o estado correto mesmo quando o job de
+    atualização periódica do banco estiver defasado.
+
+    Valores possíveis de status_operacional:
+      "normal"                — agendamento dentro do prazo
+      "confirmado"            — presença confirmada via POST confirmar/
+      "atrasado"              — hora já passou e ainda aguardando
+      "pendente_reagendamento"— marcado para reposição
+
+    Campos opcionais em visual_status (presentes apenas quando aplicável):
+      "alerta": true          — agendamento atrasado
+      "confirmado": true      — presença confirmada, ainda aguardando
+      "pendente_reagendamento": true
 
 ────────────────────────────────────────────────────────────────────────────────
 POST   agenda/agendamentos/
@@ -516,10 +1072,174 @@ GET    agenda/horarios-disponiveis/
  ── Profissionais com Agenda ──────────────────────────────────────────────────
 
 GET    agenda/profissionais/
-  Lista profissionais da clínica com suas configurações de agenda.
+  Lista configurações de agenda ativas da clínica.
+  ⚠ SEM PAGINAÇÃO — retorna array simples [ ... ] com TODOS os registros.
+  Consistente com GET profissional/ (mesma natureza de dados e ordem de grandeza).
+  Necessário para cross-reference: o frontend calcula "sem agenda" subtraindo
+  os profissional_id desta lista dos IDs de GET profissional/. Uma única
+  requisição é suficiente — não implementar loop de paginação.
+  Retorna apenas registros com ativa=True — configs órfãs (profissional sem
+  UsuarioClinica ativo na clínica) são excluídas automaticamente.
 
+  ⚠ ATENÇÃO FRONTEND — cross-reference entre endpoints:
+    "id"             = ID da ConfiguracaoAgenda  (NÃO é o ID do Profissional)
+    "profissional_id" = ID do Profissional        (use este para cruzar com profissional/<id>/)
+    Para saber quais profissionais NÃO têm agenda: buscar profissional/ e excluir os
+    cujo "id" esteja presente em "profissional_id" desta listagem.
+    NUNCA cruzar pelo campo "id" — ele identifica a configuração, não o profissional.
+
+POST   agenda/profissionais/
+  Cria configuração de agenda para um profissional. Restrito a ADMIN.
+
+  Response da listagem — shape de CADA ITEM:
+    {
+      "id":                        10,    // ← ID da ConfiguracaoAgenda (não do profissional)
+      "profissional_id":           42,    // ← ID do Profissional — use este para cross-reference
+      "nome":                      "Dr. Carlos Lima",
+      "funcao":                    "Psiquiatra",
+      "foto":                      "https://..." | null,
+      "hora_inicio":               "08:00:00",
+      "hora_fim":                  "18:00:00",
+      "duracao_sessao":            50,
+      "intervalo":                 10,
+      "atende_feriados_nacionais": false, // bool, nunca null
+      "atende_feriados_locais":    false, // bool, nunca null
+      "dias_trabalho":             { "segunda": true, "terca": true, "quarta": true,
+                                     "quinta": true, "sexta": true, "sabado": false, "domingo": false }
+    }
+
+  Request body (POST):
+    {
+      "profissional_id":           42,       // obrigatório — deve pertencer à clínica
+      "hora_inicio":               "08:00",  // obrigatório — HH:MM
+      "hora_fim":                  "18:00",  // obrigatório — HH:MM; deve ser > hora_inicio
+      "duracao_sessao":            50,       // obrigatório — minutos (mín. 1)
+      "intervalo":                 10,       // obrigatório — minutos entre sessões (mín. 0)
+      "dias_trabalho": {                     // obrigatório — todos os 7 campos booleanos
+        "segunda": true,  "terca": true,  "quarta": true,
+        "quinta":  true,  "sexta": true,  "sabado": false,  "domingo": false
+      },
+      "hora_almoco_inicio":        "12:00",  // opcional — HH:MM ou null
+      "hora_almoco_fim":           "13:00",  // opcional — HH:MM ou null
+      "atende_feriados_nacionais": false,    // opcional, default false
+      "atende_feriados_locais":    false     // opcional, default false
+    }
+
+  Regras:
+    • hora_almoco_inicio e hora_almoco_fim devem ser ambos informados ou ambos omitidos.
+    • Operação atômica: ConfiguracaoAgenda + DiasTrabalho criados juntos.
+
+  Response 201 — objeto completo (mesmo shape do GET agenda/profissionais/<id>/).
+
+  Comportamento para profissional com agenda inativa (ativa=False):
+    Se já existe um ConfiguracaoAgenda com ativa=False para o profissional,
+    o POST reativa esse registro e atualiza todos os seus campos com os dados
+    do request body (reativar + atualizar). DiasTrabalho também é atualizado.
+    Retorna 201 com o objeto reativado — sem criar duplicata no banco.
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { ... } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 not_found (profissional_id não encontrado ou inativo nesta clínica)
+    409 { "status": "error", "code": "conflict",
+          "detail": "Este profissional já possui uma agenda configurada nesta clínica." }
+        Ocorre SOMENTE quando já existe ConfiguracaoAgenda com ativa=True.
+        Se existe config com ativa=False → reativa (201). Sem config → cria (201).
+
+  Nota interna — signal post_save:
+    O model ConfiguracaoAgenda possui um signal post_save (signals.py) que cria
+    DiasTrabalho automaticamente com get_or_create a cada nova ConfiguracaoAgenda.
+    O view usa update_or_create para DiasTrabalho (não create) justamente por isso.
+    Nunca usar DiasTrabalho.objects.create() neste contexto — causa IntegrityError.
+
+────────────────────────────────────────────────────────────────────────────────
+POST   agenda/profissionais/limpar-orfaos/
+  Executa soft delete nas ConfiguracaoAgenda órfãs da clínica. Restrito a ADMIN.
+
+  Critério de órfão: ConfiguracaoAgenda cujo profissional_id não possui
+  UsuarioClinica com ativo=True para a clínica do X-Clinica-ID.
+
+  Sem body.
+
+  Response 200:
+    {
+      "registros_inativados": 2,       // quantidade de configs marcadas como ativo=False
+      "detalhes": [
+        {
+          "configuracao_id": 28,
+          "profissional_id": 15,
+          "profissional_nome": "Dr. Fulano"
+        }
+      ]
+    }
+
+  Response 200 (nenhum órfão encontrado):
+    { "registros_inativados": 0, "detalhes": [] }
+
+  Erros:
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+
+  Nota: operação segura e reversível — os registros recebem ativo=False
+  (soft delete) e não são removidos do banco. O GET agenda/profissionais/
+  já filtra ativo=True, portanto os configs inativadas somem da listagem
+  imediatamente. Para consultar o efeito, execute GET agenda/profissionais/
+  antes e depois da chamada.
+
+  Uso recomendado: chamar uma vez após detectar divergência entre a contagem
+  de GET agenda/profissionais/ e o número real de profissionais ativos.
+
+────────────────────────────────────────────────────────────────────────────────
 GET    agenda/profissionais/<id>/
-  Detalhe da configuração de agenda de um profissional (inclui feriados e faltas).
+  Detalhe da configuração de agenda. <id> na URL = ID da ConfiguracaoAgenda
+  (o mesmo campo "id" retornado na listagem — NÃO é o ID do Profissional).
+
+  Response 200:
+    {
+      "id":                        10,       // ID da ConfiguracaoAgenda
+      "profissional_id":           42,       // ID do Profissional
+      "nome":                      "Dr. Carlos Lima",
+      "funcao":                    "Psiquiatra",
+      "foto":                      "https://..." | null,
+      "hora_inicio":               "08:00:00",
+      "hora_fim":                  "18:00:00",
+      "duracao_sessao":            50,
+      "intervalo":                 10,
+      "hora_almoco_inicio":        "12:00:00" | null,
+      "hora_almoco_fim":           "13:00:00" | null,
+      "atende_feriados_nacionais": false,
+      "atende_feriados_locais":    false,
+      "dias_trabalho": { "segunda": true, "terca": true, "quarta": true,
+                         "quinta": true, "sexta": true, "sabado": false, "domingo": false },
+      "feriados_locais": [ { "id", "data", "descricao", "ativo" } ],
+      "faltas":          [ { "id", "profissional_nome", "data", "motivo" } ]
+    }
+
+PATCH  agenda/profissionais/<id>/
+  Atualização parcial da configuração de agenda. Restrito a ADMIN.
+  Todos os campos são opcionais (PATCH puro).
+
+  Request body (enviar apenas os campos que mudam):
+    {
+      "hora_inicio":               "08:00",
+      "hora_fim":                  "17:00",
+      "duracao_sessao":            50,
+      "intervalo":                 10,
+      "dias_trabalho": {           // se enviado, todos os 7 campos são necessários
+        "segunda": true, "terca": true, "quarta": true,
+        "quinta": true, "sexta": true, "sabado": false, "domingo": false
+      },
+      "hora_almoco_inicio":        "12:00",
+      "hora_almoco_fim":           "13:00",
+      "atende_feriados_nacionais": false,
+      "atende_feriados_locais":    false
+    }
+
+  Response 200 — objeto completo atualizado (mesmo shape do GET agenda/profissionais/<id>/).
+
+  Erros:
+    400 { "status": "error", "code": "validation_error", "errors": { ... } }
+    403 { "status": "error", "code": "permission_denied", "detail": "..." }
+    404 { "status": "error", "code": "not_found",         "detail": "..." }
 
  ── Feriados ──────────────────────────────────────────────────────────────────
 
@@ -648,7 +1368,9 @@ GET    /api/redoc/    — ReDoc
  RESUMO DE PERMISSÕES
 ================================================================================
 
- ADMIN   — Acesso total. Único que pode acessar GET funcionario/<id>/.
+ ADMIN   — Acesso total. Único que pode usar PATCH clinica/ (edição de dados
+           cadastrais), GET funcionario/<id>/, POST profissional/ e
+           POST funcionario/ (criação via app mobile).
  FUNC    — Acesso administrativo semelhante ao ADMIN (leitura).
            Pode criar/gerenciar agendamentos e registrar faltas.
  PROF    — Acessa seus agendamentos, sessões e pacientes.
